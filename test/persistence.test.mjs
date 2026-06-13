@@ -36,10 +36,20 @@ test("history snapshots persist and distinguish later catalog additions", async 
     assert.equal(store.getMetadata(1).catalogNew, false);
     assert.equal(store.getMetadata(2).catalogNew, true);
     assert.match(await readFile(historyPath, "utf8"), /"d":\[\[1,105/);
+    const imported = await store.importSeries(1, [
+      {
+        timestamp: now - 3600,
+        avgHighPrice: 120,
+        avgLowPrice: 100,
+        highPriceVolume: 50,
+        lowPriceVolume: 40,
+      },
+    ]);
+    assert.equal(imported, 1);
 
     const reloaded = new HistoryStore(historyPath, catalogPath);
     await reloaded.init();
-    assert.equal(reloaded.getSamples(1).length, 1);
+    assert.equal(reloaded.getSamples(1).length, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

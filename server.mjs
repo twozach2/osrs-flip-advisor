@@ -4,7 +4,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HistoryStore } from "./lib/history-store.mjs";
-import { calculateTax, rankOpportunities } from "./lib/market.mjs";
+import {
+  buildDistributionGuidance,
+  calculateTax,
+  rankOpportunities,
+} from "./lib/market.mjs";
 import { TradeStore } from "./lib/trade-store.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -25,6 +29,8 @@ const contentTypes = {
 };
 
 const cache = new Map();
+const backfillAttempts = new Map();
+let lastBackfillBatchAt = 0;
 const historyStore = new HistoryStore(
   join(DATA_ROOT, "market-history.jsonl"),
   join(DATA_ROOT, "item-catalog.json"),
@@ -105,11 +111,68 @@ async function loadMarketRecords() {
   });
 
   await historyStore.record(records);
+  await backfillLiquidHistory(records);
   return records.map((record) => ({
     ...record,
     history: historyStore.getSamples(record.item.id),
     ...historyStore.getMetadata(record.item.id),
   }));
+}
+
+async function backfillLiquidHistory(records) {
+  const now = Date.now();
+  if (now - lastBackfillBatchAt < 6 * 60 * 60 * 1000) {
+    return;
+  }
+  lastBackfillBatchAt = now;
+
+  const candidates = [...records]
+    .filter(
+      (record) =>
+        Number(record.latest?.high) > 0 &&
+        Number(record.latest?.low) > 0 &&
+        historyStore.getSamples(record.item.id).length < 24 &&
+        now - (backfillAttempts.get(record.item.id) || 0) > 6 * 60 * 60 * 1000,
+    )
+    .sort((left, right) => historyCandidateScore(right) - historyCandidateScore(left))
+    .slice(0, 24);
+
+  for (let index = 0; index < candidates.length; index += 4) {
+    const batch = candidates.slice(index, index + 4);
+    await Promise.all(
+      batch.map(async (record) => {
+        backfillAttempts.set(record.item.id, now);
+        try {
+          const response = await fetchJson(
+            `timeseries?timestep=1h&id=${record.item.id}`,
+            6 * 60 * 60 * 1000,
+          );
+          await historyStore.importSeries(record.item.id, response.data);
+        } catch (error) {
+          console.error(
+            `History backfill failed for item ${record.item.id}:`,
+            error.message,
+          );
+        }
+      }),
+    );
+  }
+}
+
+function historyCandidateScore(record) {
+  const volume = Math.min(
+    Number(record.oneHour?.highPriceVolume) || 0,
+    Number(record.oneHour?.lowPriceVolume) || 0,
+  );
+  const high = Number(record.latest?.high) || 0;
+  const low = Number(record.latest?.low) || 0;
+  const netPerItem =
+    high > low ? Math.max(0, high - low - calculateTax(high)) : 0;
+  return (
+    Math.log10(volume + 1) *
+    Math.log10(netPerItem + 10) *
+    Math.log10(Math.max(high, 10))
+  );
 }
 
 function numberParameter(searchParams, name, fallback) {
@@ -137,6 +200,25 @@ async function serveOpportunities(requestUrl, response) {
     cycleHours: numberParameter(requestUrl.searchParams, "cycleHours", 8),
     participationRate: numberParameter(requestUrl.searchParams, "participationRate", 0.02),
     adaptiveOffers: requestUrl.searchParams.get("adaptiveOffers") !== "false",
+    requireDistribution: requestUrl.searchParams.get("requireDistribution") !== "false",
+    distributionWindowHours: numberParameter(
+      requestUrl.searchParams,
+      "distributionWindowHours",
+      72,
+    ),
+    distributionHalfLifeHours: numberParameter(
+      requestUrl.searchParams,
+      "distributionHalfLifeHours",
+      24,
+    ),
+    entrySigma: numberParameter(requestUrl.searchParams, "entrySigma", 0.75),
+    exitSigma: numberParameter(requestUrl.searchParams, "exitSigma", 0.75),
+    maxExitSigma: numberParameter(requestUrl.searchParams, "maxExitSigma", 3),
+    minimumDistributionSamples: numberParameter(
+      requestUrl.searchParams,
+      "minimumDistributionSamples",
+      24,
+    ),
     maxRiskScore: numberParameter(requestUrl.searchParams, "maxRiskScore", 65),
     maxLossPercent: numberParameter(requestUrl.searchParams, "maxLossPercent", 0.005),
     maxPositionPercent: numberParameter(
@@ -266,6 +348,47 @@ function serveHistory(requestUrl, response) {
   );
 }
 
+async function serveGuidance(requestUrl, response) {
+  const ids = new Set(
+    (requestUrl.searchParams.get("ids") || "")
+      .split(",")
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .slice(0, 8),
+  );
+  const records = await loadMarketRecords();
+  const settings = {
+    distributionWindowHours: numberParameter(
+      requestUrl.searchParams,
+      "distributionWindowHours",
+      72,
+    ),
+    distributionHalfLifeHours: numberParameter(
+      requestUrl.searchParams,
+      "distributionHalfLifeHours",
+      24,
+    ),
+    entrySigma: numberParameter(requestUrl.searchParams, "entrySigma", 0.75),
+    exitSigma: numberParameter(requestUrl.searchParams, "exitSigma", 0.75),
+    maxExitSigma: numberParameter(requestUrl.searchParams, "maxExitSigma", 3),
+    minimumDistributionSamples: numberParameter(
+      requestUrl.searchParams,
+      "minimumDistributionSamples",
+      24,
+    ),
+  };
+  const guidance = records
+    .filter((record) => ids.has(record.item.id))
+    .map((record) => buildDistributionGuidance(record, settings))
+    .filter(Boolean);
+
+  response.writeHead(200, {
+    "Content-Type": contentTypes[".json"],
+    "Cache-Control": "no-store",
+  });
+  response.end(JSON.stringify({ generatedAt: new Date().toISOString(), guidance }));
+}
+
 async function serveStatic(pathname, response) {
   const requestedPath = pathname === "/" ? "index.html" : pathname.slice(1);
   const safePath = normalize(requestedPath).replace(/^(\.\.[/\\])+/, "");
@@ -316,6 +439,11 @@ const server = createServer(async (request, response) => {
 
     if (requestUrl.pathname === "/api/history" && request.method === "GET") {
       serveHistory(requestUrl, response);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/guidance" && request.method === "GET") {
+      await serveGuidance(requestUrl, response);
       return;
     }
 

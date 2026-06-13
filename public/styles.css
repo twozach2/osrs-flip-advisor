@@ -115,6 +115,7 @@ h2 {
 
 .control-panel,
 .market-panel,
+.plan-panel,
 .journal-panel {
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -123,6 +124,7 @@ h2 {
 }
 
 .control-panel,
+.plan-panel,
 .journal-panel {
   padding: 26px;
 }
@@ -271,6 +273,152 @@ select:focus {
   grid-template-columns: repeat(6, 1fr);
   gap: 14px;
   margin: 16px 0;
+}
+
+.plan-panel {
+  margin-bottom: 16px;
+}
+
+.plan-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.slot-card {
+  min-height: 230px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #111613;
+}
+
+.slot-card.empty {
+  display: grid;
+  place-items: center;
+  border-style: dashed;
+  color: var(--muted);
+  text-align: center;
+}
+
+.slot-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.slot-number {
+  color: var(--gold);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.slot-card h3 {
+  margin: 5px 0 2px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.08rem;
+  font-weight: 500;
+}
+
+.slot-card header span:last-child {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.slot-card select {
+  width: 105px;
+  height: 32px;
+  padding: 0 7px;
+  font-size: 0.68rem;
+}
+
+.slot-command {
+  margin: 14px 0;
+  padding: 11px 12px;
+  border-left: 3px solid var(--gold);
+  border-radius: 4px;
+  background: rgb(232 189 97 / 7%);
+}
+
+.slot-command strong,
+.slot-command span {
+  display: block;
+}
+
+.slot-command strong {
+  font-size: 0.84rem;
+}
+
+.slot-command span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.slot-prices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.slot-prices div {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0d110f;
+}
+
+.slot-prices span,
+.slot-prices strong {
+  display: block;
+}
+
+.slot-prices span {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.59rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.slot-prices strong {
+  font-size: 0.76rem;
+}
+
+.slot-band {
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.slot-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.slot-footer button {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.slot-footer button:hover {
+  color: var(--text);
 }
 
 .summary-card {
@@ -674,5 +822,9 @@ footer {
 
   .summary-grid {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .slot-grid {
+    grid-template-columns: repeat(2, minmax(300px, 1fr));
   }
 }

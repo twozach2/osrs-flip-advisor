@@ -16,9 +16,12 @@ use the bundled Node runtime.
 
 - Pulls live prices, item mappings, buy limits, and 5-minute/1-hour volume from
   the OSRS Wiki Real-time Prices API.
-- Suggests a passive buy above the latest observed low and a passive sell below
-  the latest observed high.
-- Adapts buy and sell aggressiveness using five-minute activity and buy pressure.
+- Seeds selected liquid items with hourly timeseries, then adds local five-minute
+  observations.
+- Calculates fair value, quartiles, and entry/exit bands from weighted log-price
+  distributions using robust median absolute deviation rather than ordinary
+  standard deviation.
+- Suggests patient entry and exit targets at configurable robust-sigma distances.
 - Calculates the current 2% seller tax conservatively, including the 5m cap.
 - Rejects stale, thin, low-return, and implausibly wide-spread markets.
 - Scores downside risk using persistent volatility, drawdown, adverse moves,
@@ -26,6 +29,9 @@ use the bundled Node runtime.
 - Reduces position size to respect a configurable modeled-loss budget and risk
   ceiling.
 - Ranks balanced, high-volume, and high-margin opportunities separately.
+- Maintains a persistent eight-slot execution plan in the browser. Pinned entry,
+  exit, review, quantity, and distribution values remain visible even when the
+  item later drops out of the opportunity board.
 - Sizes each suggestion against cash, reserve, GE slots, buy limits, and recent
   liquidity.
 - Provides user-triggered copy buttons and live manual repricing guidance.
@@ -37,10 +43,16 @@ use the bundled Node runtime.
 
 ## Important assumptions
 
-The API contains completed trades, not the live order book. Suggested prices
-are therefore estimates. The expected weekly number is a comparison model, not
-a profit promise. It applies a heuristic fill estimate and caps throughput at
-the item's four-hour buy limit.
+The API contains completed trades, not the live order book. The live feed is
+used for activity, freshness, and current-price context. Entry and exit targets
+come from the advisor's rolling historical model. Suggested prices remain
+estimates, and patient distribution targets may take substantially longer to
+fill than current-spread offers.
+
+The default model uses a 72-hour window, a 24-hour recency half-life, and entry
+and exit targets 0.75 robust sigma below and above weighted fair value. Robust
+sigma is estimated from MAD and IQR in log-price space, making it much less
+sensitive to one-off spikes than ordinary mean and standard deviation.
 
 The tax model applies 2% to every recommendation. Some exempt items may
 therefore show slightly understated profit.

@@ -22,7 +22,7 @@
       </div>
       <div class="live-state" aria-live="polite">
         <span class="live-dot"></span>
-        <span id="liveLabel">Connecting...</span>
+        <span><span id="liveLabel">Connecting...</span> · Planner 0.4</span>
       </div>
     </header>
 
@@ -82,10 +82,45 @@
             </span>
           </label>
           <label>
-            Offer improvement
+            Entry distance
             <span class="input-with-unit">
-              <input name="edgePercent" type="number" value="5" min="0" max="25" />
-              <span>%</span>
+              <input name="entrySigma" type="number" value="0.75" min="0" max="3" step="0.05" />
+              <span>sigma</span>
+            </span>
+          </label>
+          <label>
+            Exit distance
+            <span class="input-with-unit">
+              <input name="exitSigma" type="number" value="0.75" min="0" max="3" step="0.05" />
+              <span>sigma</span>
+            </span>
+          </label>
+          <label>
+            Maximum exit widening
+            <span class="input-with-unit">
+              <input name="maxExitSigma" type="number" value="3" min="0.25" max="6" step="0.25" />
+              <span>sigma</span>
+            </span>
+          </label>
+          <label>
+            Distribution window
+            <span class="input-with-unit">
+              <input name="distributionWindowHours" type="number" value="72" min="6" max="336" />
+              <span>hr</span>
+            </span>
+          </label>
+          <label>
+            Recency half-life
+            <span class="input-with-unit">
+              <input name="distributionHalfLifeHours" type="number" value="24" min="2" max="336" />
+              <span>hr</span>
+            </span>
+          </label>
+          <label>
+            Minimum history
+            <span class="input-with-unit">
+              <input name="minimumDistributionSamples" type="number" value="24" min="8" max="500" />
+              <span>samples</span>
             </span>
           </label>
           <label>
@@ -96,10 +131,10 @@
             </span>
           </label>
           <label class="checkbox-field">
-            Adaptive offers
+            Historical targets only
             <span>
-              <input name="adaptiveOffers" type="checkbox" checked />
-              Use recent activity
+              <input name="requireDistribution" type="checkbox" checked />
+              Hide live-spread fallbacks
             </span>
           </label>
           <label>
@@ -125,8 +160,9 @@
           </label>
         </form>
         <p class="field-note">
-          "Offer improvement" moves your prices inside the observed spread. Adaptive
-          offers adjust each side using recent activity and buy pressure.
+          Targets use a weighted median, quartiles, and robust MAD sigma in log-price
+          space. Portfolio planning may widen an exit up to the configured maximum to
+          clear tax and minimum return. Pinned plans retain their original targets.
         </p>
       </section>
 
@@ -163,6 +199,29 @@
         </article>
       </section>
 
+      <section class="plan-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Persistent execution plan</p>
+            <h2>Your eight Grand Exchange slots</h2>
+          </div>
+          <div class="plan-actions">
+            <button class="primary-button" id="buildPlanButton" type="button">
+              Fill empty slots
+            </button>
+            <button class="secondary-button" id="clearPlanButton" type="button">
+              Clear plan
+            </button>
+          </div>
+        </div>
+        <p class="field-note">
+          Each pinned slot freezes the calculated entry and exit targets. Current model
+          guidance may change, but the original sell target remains available after the
+          opportunity leaves the board.
+        </p>
+        <div id="slotPlan" class="slot-grid"></div>
+      </section>
+
       <section class="market-panel">
         <div class="market-toolbar">
           <div>
@@ -194,8 +253,8 @@
             <thead>
               <tr>
                 <th>Item</th>
-                <th>Buy offer</th>
-                <th>Sell offer</th>
+                <th>Entry target</th>
+                <th>Exit target</th>
                 <th>Quantity</th>
                 <th>Profit/item</th>
                 <th>ROI</th>
@@ -216,8 +275,9 @@
           </table>
         </div>
         <p class="table-note">
-          Prices are recommendations based on recent completed trades, not a visible order
-          book. Test small when confidence is low, and cancel offers that stop making sense.
+          Targets come from the rolling historical distribution. Q1/Q3 describe the
+          normal middle range; sigma targets sit beyond that range according to your
+          controls. Offers may take time to fill.
         </p>
       </section>
 
@@ -261,24 +321,6 @@
         </div>
       </section>
 
-      <section class="journal-panel">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Manual execution</p>
-            <h2>Planning journal</h2>
-          </div>
-          <button class="secondary-button" id="clearJournalButton" type="button">
-            Clear journal
-          </button>
-        </div>
-        <p class="field-note">
-          Use "Queue" on a recommendation, then update the entry after the trade fills.
-          Journal data stays in this browser.
-        </p>
-        <div id="journal" class="journal-list">
-          <p class="empty-state">No queued trades yet.</p>
-        </div>
-      </section>
     </main>
 
     <footer>
@@ -288,6 +330,6 @@
       </p>
     </footer>
 
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.js?v=0.4"></script>
   </body>
 </html>

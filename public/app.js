@@ -1,8 +1,11 @@
+const EXCLUDED_ITEM_IDS = new Set([13190]);
+
 const state = {
   data: null,
   activeStrategy: "balanced",
   watchlist: new Set(JSON.parse(localStorage.getItem("osrs-flip-watchlist") || "[]")),
-  journal: JSON.parse(localStorage.getItem("osrs-flip-journal") || "[]"),
+  plan: loadPlan(),
+  guidance: new Map(),
   tracking: null,
   timer: null,
 };
@@ -26,9 +29,26 @@ const elements = {
   trackedPositions: document.querySelector("#trackedPositions"),
   recentFills: document.querySelector("#recentFills"),
   refreshTrackingButton: document.querySelector("#refreshTrackingButton"),
-  journal: document.querySelector("#journal"),
-  clearJournalButton: document.querySelector("#clearJournalButton"),
+  slotPlan: document.querySelector("#slotPlan"),
+  buildPlanButton: document.querySelector("#buildPlanButton"),
+  clearPlanButton: document.querySelector("#clearPlanButton"),
 };
+
+function loadPlan() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("osrs-flip-slot-plan") || "[]");
+    const plan = Array.from({ length: 8 }, (_, index) => stored[index] || null);
+    const cleaned = plan.map((slot) =>
+      slot && EXCLUDED_ITEM_IDS.has(Number(slot.id)) ? null : slot,
+    );
+    if (cleaned.some((slot, index) => slot !== plan[index])) {
+      localStorage.setItem("osrs-flip-slot-plan", JSON.stringify(cleaned));
+    }
+    return cleaned;
+  } catch {
+    return Array(8).fill(null);
+  }
+}
 
 function parseCoins(value) {
   const normalized = String(value).trim().toLowerCase().replaceAll(",", "");
@@ -93,10 +113,17 @@ function getSettings() {
     minRoi: Number(formData.get("minRoi")) / 100,
     minHourlyVolume: Number(formData.get("minHourlyVolume")),
     maxAgeMinutes: Number(formData.get("maxAgeMinutes")),
-    edgePercent: Number(formData.get("edgePercent")) / 100,
+    edgePercent: 0.05,
     maxSpreadRatio: Number(formData.get("maxSpreadRatio")) / 100,
     participationRate: 0.02,
-    adaptiveOffers: formData.get("adaptiveOffers") === "on",
+    adaptiveOffers: true,
+    requireDistribution: formData.get("requireDistribution") === "on",
+    distributionWindowHours: Number(formData.get("distributionWindowHours")),
+    distributionHalfLifeHours: Number(formData.get("distributionHalfLifeHours")),
+    minimumDistributionSamples: Number(formData.get("minimumDistributionSamples")),
+    entrySigma: Number(formData.get("entrySigma")),
+    exitSigma: Number(formData.get("exitSigma")),
+    maxExitSigma: Number(formData.get("maxExitSigma")),
     maxRiskScore: Number(formData.get("maxRiskScore")),
     maxLossPercent: Number(formData.get("maxLossPercent")) / 100,
     maxPositionPercent: Number(formData.get("maxPositionPercent")) / 100,
@@ -136,6 +163,9 @@ function rowHtml(opportunity) {
       : opportunity.risk.catalogNew
         ? " - newly observed"
         : "";
+  const bandLabel = opportunity.distribution.available
+    ? `Q1 ${formatCoins(opportunity.distribution.q1)} - Q3 ${formatCoins(opportunity.distribution.q3)}`
+    : "Live fallback";
 
   return `
     <tr>
@@ -150,11 +180,11 @@ function rowHtml(opportunity) {
           >${watched ? "*" : "+"}</button>
           <div>
             <strong>${escapeHtml(opportunity.name)}</strong>
-            <span>Limit ${formatCoins(opportunity.limit)} - ${formatCoins(opportunity.capitalRequired, true)} allocated${historyLabel}</span>
+            <span>${bandLabel} - ${formatCoins(opportunity.capitalRequired, true)} allocated${historyLabel}</span>
           </div>
         </div>
       </td>
-      <td class="price buy-price">
+      <td class="price buy-price" title="Current model z-score: ${opportunity.distribution.zScore?.toFixed(2) || "--"}">
         ${formatCoins(opportunity.buyOffer)}
         <button class="copy-button" data-action="copy-buy" data-id="${opportunity.id}" type="button">Copy</button>
       </td>
@@ -180,8 +210,8 @@ function rowHtml(opportunity) {
         </span>
       </td>
       <td>
-        <button class="queue-button" data-action="queue" data-id="${opportunity.id}" type="button">
-          Queue
+        <button class="queue-button" data-action="pin" data-id="${opportunity.id}" type="button">
+          Pin
         </button>
       </td>
     </tr>
@@ -219,9 +249,12 @@ function renderSummary() {
     return;
   }
 
-  const portfolio = state.data.balanced.slice(0, state.data.settings.slots);
+  const pinned = state.plan.filter(Boolean);
+  const portfolio = pinned.length
+    ? pinned
+    : state.data.balanced.slice(0, state.data.settings.slots);
   const weeklyProfit = portfolio.reduce(
-    (total, item) => total + item.expectedWeeklyProfit,
+    (total, item) => total + (item.expectedWeeklyProfit || 0),
     0,
   );
   const coverage = weeklyProfit / 1_000_000_000;
@@ -244,62 +277,238 @@ function renderSummary() {
     : "First snapshot is being collected";
 }
 
-function saveJournal() {
-  localStorage.setItem("osrs-flip-journal", JSON.stringify(state.journal));
+function savePlan() {
+  localStorage.setItem("osrs-flip-slot-plan", JSON.stringify(state.plan));
 }
 
-function renderJournal() {
-  if (!state.journal.length) {
-    elements.journal.innerHTML = `<p class="empty-state">No queued trades yet.</p>`;
-    return;
+function snapshotOpportunity(opportunity) {
+  return {
+    id: opportunity.id,
+    name: opportunity.name,
+    buyOffer: opportunity.buyOffer,
+    sellOffer: opportunity.sellOffer,
+    quantity: opportunity.quantity,
+    reviewPrice: opportunity.reviewPrice,
+    expectedWeeklyProfit: opportunity.expectedWeeklyProfit,
+    fairValue: opportunity.distribution.fairValue,
+    q1: opportunity.distribution.q1,
+    q3: opportunity.distribution.q3,
+    p10: opportunity.distribution.p10,
+    sigmaPercent: opportunity.distribution.sigmaPercent,
+    effectiveExitSigma: opportunity.effectiveExitSigma,
+    taxAdjustedExit: opportunity.taxAdjustedExit,
+    riskScore: opportunity.risk.score,
+    modelSource: opportunity.modelSource,
+    currentMid: opportunity.currentMid,
+    status: "Buying",
+    pinnedAt: new Date().toISOString(),
+  };
+}
+
+function calculateBreakEvenSell(unitCost) {
+  let low = Math.max(1, Math.floor(unitCost));
+  let high = Math.ceil(unitCost / 0.98 + 5_000_001);
+
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const tax = Math.min(Math.floor(middle * 0.02), 5_000_000);
+    if (middle - tax >= unitCost) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
   }
 
-  elements.journal.innerHTML = state.journal
-    .map((entry) => {
-      const current = findOpportunity(entry.id);
-      let guidance = "Waiting for current market match";
+  return low;
+}
 
-      if (current && ["Queued", "Buying"].includes(entry.status)) {
-        const difference = current.buyOffer - entry.buyOffer;
-        guidance =
-          difference > 0
-            ? `Consider raising buy by ${formatCoins(difference)}`
-            : difference < 0
-              ? `Current buy is ${formatCoins(Math.abs(difference))} lower`
-              : "Buy offer still matches";
-      } else if (current && ["Bought", "Selling"].includes(entry.status)) {
-        const difference = current.sellOffer - entry.sellOffer;
-        guidance =
-          difference > 0
-            ? `Market sell is ${formatCoins(difference)} higher`
-            : difference < 0
-              ? `Consider lowering sell by ${formatCoins(Math.abs(difference))}`
-              : "Sell offer still matches";
+function planGuidance(slot) {
+  const current = findOpportunity(slot.id);
+  const modelGuidance = state.guidance.get(slot.id);
+  const position = state.tracking?.positions.find(
+    (candidate) => candidate.itemId === slot.id,
+  );
+  const holding = position && position.quantity > 0;
+  const status = holding && ["Buying", "Planned"].includes(slot.status)
+    ? "Holding"
+    : slot.status;
+
+  if (["Holding", "Selling"].includes(status)) {
+    const quantity = position?.quantity || slot.quantity;
+    const averageCost = position?.averageCost || slot.buyOffer;
+    const breakEven = calculateBreakEvenSell(averageCost);
+    const currentModelExit =
+      current?.sellOffer || modelGuidance?.sellTarget || slot.sellOffer;
+    const target = Math.max(slot.sellOffer, breakEven);
+    const weakened = currentModelExit < breakEven;
+    const currentMid =
+      current?.currentMid || modelGuidance?.currentMid || slot.currentMid;
+    const currentReview =
+      current?.reviewPrice || modelGuidance?.reviewPrice || slot.reviewPrice;
+    const belowReview =
+      currentMid > 0 && currentMid < Math.max(slot.reviewPrice, currentReview);
+
+    return {
+      status,
+      title: `SELL ${formatCoins(quantity)} at ${formatCoins(target)}`,
+      detail: belowReview
+        ? `Price is below the review band. Current model exit ${formatCoins(currentModelExit)}; break-even ${formatCoins(breakEven)}. Reassess rather than chasing the old margin.`
+        : weakened
+          ? `Current model exit is below break-even ${formatCoins(breakEven)}. Keep the frozen target visible, but consider time-to-recovery and slot cost.`
+          : `Frozen target ${formatCoins(slot.sellOffer)}; current model ${formatCoins(currentModelExit)}; break-even ${formatCoins(breakEven)}.`,
+      copyPrice: target,
+    };
+  }
+
+  if (status === "Complete") {
+    return {
+      status,
+      title: "Slot complete",
+      detail: "Remove or replace this plan when you are ready.",
+      copyPrice: null,
+    };
+  }
+
+  const currentMid =
+    current?.currentMid || modelGuidance?.currentMid || slot.currentMid;
+  const distance = currentMid > 0 ? currentMid / slot.buyOffer - 1 : 0;
+  return {
+    status,
+    title: `BUY ${formatCoins(slot.quantity)} at ${formatCoins(slot.buyOffer)}`,
+    detail:
+      distance <= 0.01
+        ? `Entry is inside the planned lower band. Frozen exit target: ${formatCoins(slot.sellOffer)}.`
+        : `Current midpoint is ${(distance * 100).toFixed(1)}% above entry. Leave a patient offer or wait; do not chase it upward.`,
+    copyPrice: slot.buyOffer,
+  };
+}
+
+function renderPlan() {
+  elements.slotPlan.innerHTML = state.plan
+    .map((slot, index) => {
+      if (!slot) {
+        return `
+          <article class="slot-card empty">
+            <div>
+              <strong>Slot ${index + 1}</strong>
+              <span>Empty</span>
+            </div>
+          </article>
+        `;
       }
 
+      const guidance = planGuidance(slot);
+      const current = findOpportunity(slot.id);
+      const modelGuidance = state.guidance.get(slot.id);
+      const currentExit =
+        current?.sellOffer || modelGuidance?.sellTarget || slot.sellOffer;
+
       return `
-        <article class="journal-entry">
-          <div>
-            <strong>${escapeHtml(entry.name)}</strong>
-            <span>Buy ${formatCoins(entry.buyOffer)} - Sell ${formatCoins(entry.sellOffer)} - Qty ${formatCoins(entry.quantity)}</span>
-            <em>${guidance}</em>
-          </div>
-          <label>
-            Status
-            <select data-journal-status="${entry.key}">
-              ${["Queued", "Buying", "Bought", "Selling", "Complete", "Cancelled"]
+        <article class="slot-card">
+          <header>
+            <div>
+              <span class="slot-number">Slot ${index + 1}</span>
+              <h3>${escapeHtml(slot.name)}</h3>
+              <span>Risk ${slot.riskScore}/100 - pinned ${new Date(slot.pinnedAt).toLocaleDateString()}</span>
+            </div>
+            <select data-plan-status="${index}">
+              ${["Planned", "Buying", "Holding", "Selling", "Complete"]
                 .map(
                   (status) =>
-                    `<option ${entry.status === status ? "selected" : ""}>${status}</option>`,
+                    `<option ${guidance.status === status ? "selected" : ""}>${status}</option>`,
                 )
                 .join("")}
             </select>
-          </label>
-          <button class="remove-button" data-journal-remove="${entry.key}" type="button">Remove</button>
+          </header>
+          <div class="slot-command">
+            <strong>${guidance.title}</strong>
+            <span>${guidance.detail}</span>
+          </div>
+          <div class="slot-prices">
+            <div><span>Entry</span><strong>${formatCoins(slot.buyOffer)}</strong></div>
+            <div><span>Frozen exit</span><strong>${formatCoins(slot.sellOffer)}</strong></div>
+            <div><span>Current exit</span><strong>${formatCoins(currentExit)}</strong></div>
+          </div>
+          <p class="slot-band">
+            Fair ${formatCoins(slot.fairValue)} - Q1 ${formatCoins(slot.q1)} -
+            Q3 ${formatCoins(slot.q3)} - volatility sigma ${(Number(slot.sigmaPercent || 0) * 100).toFixed(2)}% -
+            exit ${Number(slot.effectiveExitSigma || 0).toFixed(2)} sigma${slot.taxAdjustedExit ? " tax-adjusted" : ""} -
+            review below ${formatCoins(slot.reviewPrice)}
+          </p>
+          <div class="slot-footer">
+            <span>${formatCoins(slot.quantity)} units - ${formatCoins(slot.expectedWeeklyProfit, true)}/wk model</span>
+            <div>
+              ${
+                guidance.copyPrice
+                  ? `<button data-plan-copy="${guidance.copyPrice}" type="button">Copy price</button>`
+                  : ""
+              }
+              ${
+                current || modelGuidance?.distribution.available
+                  ? `<button data-plan-refresh="${index}" type="button">Adopt current</button>`
+                  : ""
+              }
+              <button data-plan-remove="${index}" type="button">Remove</button>
+            </div>
+          </div>
         </article>
       `;
     })
     .join("");
+}
+
+function pinOpportunity(opportunity) {
+  const existingIndex = state.plan.findIndex((slot) => slot?.id === opportunity.id);
+  const emptyIndex = state.plan.findIndex((slot) => !slot);
+  const index = existingIndex >= 0 ? existingIndex : emptyIndex;
+
+  if (index < 0) {
+    throw new Error("All eight slots are pinned. Remove or complete one first.");
+  }
+
+  state.plan[index] = snapshotOpportunity(opportunity);
+  savePlan();
+  renderPlan();
+  renderSummary();
+  loadPlanGuidance();
+}
+
+function buildPlan() {
+  if (!state.data) {
+    return;
+  }
+
+  const desiredSlots = Math.min(8, state.data.settings.slots);
+  const pinnedIds = new Set(state.plan.filter(Boolean).map((slot) => slot.id));
+  const candidates = (state.data.plan || state.data.balanced).filter(
+    (opportunity) =>
+      opportunity.modelSource === "distribution" && !pinnedIds.has(opportunity.id),
+  );
+
+  for (let index = 0; index < desiredSlots; index += 1) {
+    if (state.plan[index]) {
+      continue;
+    }
+    const opportunity = candidates.shift();
+    if (!opportunity) {
+      break;
+    }
+    state.plan[index] = snapshotOpportunity(opportunity);
+  }
+
+  savePlan();
+  renderPlan();
+  renderSummary();
+  loadPlanGuidance();
+
+  const filled = state.plan.slice(0, desiredSlots).filter(Boolean).length;
+  if (filled < desiredSlots) {
+    elements.errorBanner.textContent =
+      `Filled ${filled} of ${desiredSlots} slots. The remaining slots do not yet have enough historical data or do not pass the current return and risk rules.`;
+    elements.errorBanner.hidden = false;
+  } else {
+    elements.errorBanner.hidden = true;
+  }
 }
 
 function findOpportunity(id) {
@@ -308,6 +517,7 @@ function findOpportunity(id) {
     ...(state.data?.highVolume || []),
     ...(state.data?.highMargin || []),
     ...(state.data?.lowRisk || []),
+    ...(state.data?.plan || []),
   ];
   return combined.find((item) => item.id === id);
 }
@@ -374,10 +584,42 @@ async function loadTracking() {
     }
     state.tracking = body;
     renderTracking();
+    renderPlan();
   } catch (error) {
     elements.trackingStatus.textContent = error.message;
   } finally {
     elements.refreshTrackingButton.disabled = false;
+  }
+}
+
+async function loadPlanGuidance() {
+  const ids = state.plan.filter(Boolean).map((slot) => slot.id);
+  if (!ids.length) {
+    state.guidance.clear();
+    renderPlan();
+    return;
+  }
+
+  try {
+    const settings = getSettings();
+    const query = new URLSearchParams({
+      ids: ids.join(","),
+      distributionWindowHours: String(settings.distributionWindowHours),
+      distributionHalfLifeHours: String(settings.distributionHalfLifeHours),
+      minimumDistributionSamples: String(settings.minimumDistributionSamples),
+      entrySigma: String(settings.entrySigma),
+      exitSigma: String(settings.exitSigma),
+      maxExitSigma: String(settings.maxExitSigma),
+    });
+    const response = await fetch(`/api/guidance?${query}`, { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.error || "Pinned guidance request failed.");
+    }
+    state.guidance = new Map(body.guidance.map((entry) => [entry.id, entry]));
+    renderPlan();
+  } catch (error) {
+    console.warn(error.message);
   }
 }
 
@@ -402,7 +644,8 @@ async function loadData() {
     state.data = body;
     renderTable();
     renderSummary();
-    renderJournal();
+    renderPlan();
+    await loadPlanGuidance();
     const timestamp = new Date(body.generatedAt);
     elements.liveLabel.textContent = `Updated ${timestamp.toLocaleTimeString([], {
       hour: "numeric",
@@ -415,7 +658,7 @@ async function loadData() {
     elements.liveLabel.textContent = "Update failed";
   } finally {
     elements.refreshButton.disabled = false;
-    state.timer = setTimeout(loadData, 30_000);
+    state.timer = setTimeout(loadData, 5 * 60_000);
   }
 }
 
@@ -423,6 +666,14 @@ elements.form.addEventListener("change", loadData);
 elements.form.addEventListener("submit", (event) => event.preventDefault());
 elements.refreshButton.addEventListener("click", loadData);
 elements.refreshTrackingButton.addEventListener("click", loadTracking);
+elements.buildPlanButton.addEventListener("click", buildPlan);
+elements.clearPlanButton.addEventListener("click", () => {
+  state.plan = Array(8).fill(null);
+  state.guidance.clear();
+  savePlan();
+  renderPlan();
+  renderSummary();
+});
 
 document.querySelectorAll("[data-copy-target]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -485,51 +736,88 @@ elements.rows.addEventListener("click", (event) => {
     return;
   }
 
-  state.journal.unshift({
-    key: `${id}-${Date.now()}`,
-    id,
-    name: opportunity.name,
-    buyOffer: opportunity.buyOffer,
-    sellOffer: opportunity.sellOffer,
-    quantity: opportunity.quantity,
-    status: "Queued",
-    createdAt: new Date().toISOString(),
-  });
-  saveJournal();
-  renderJournal();
-});
-
-elements.journal.addEventListener("change", (event) => {
-  const key = event.target.dataset.journalStatus;
-  if (!key) {
+  if (button.dataset.action === "pin") {
+    try {
+      pinOpportunity(opportunity);
+    } catch (error) {
+      elements.errorBanner.textContent = error.message;
+      elements.errorBanner.hidden = false;
+    }
     return;
   }
 
-  const entry = state.journal.find((candidate) => candidate.key === key);
-  if (entry) {
-    entry.status = event.target.value;
-    saveJournal();
-  }
 });
 
-elements.journal.addEventListener("click", (event) => {
-  const key = event.target.dataset.journalRemove;
-  if (!key) {
+elements.slotPlan.addEventListener("change", (event) => {
+  const index = Number(event.target.dataset.planStatus);
+  if (!Number.isInteger(index) || !state.plan[index]) {
     return;
   }
 
-  state.journal = state.journal.filter((entry) => entry.key !== key);
-  saveJournal();
-  renderJournal();
+  state.plan[index].status = event.target.value;
+  savePlan();
+  renderPlan();
 });
 
-elements.clearJournalButton.addEventListener("click", () => {
-  state.journal = [];
-  saveJournal();
-  renderJournal();
+elements.slotPlan.addEventListener("click", (event) => {
+  const copyPrice = event.target.dataset.planCopy;
+  if (copyPrice) {
+    navigator.clipboard.writeText(copyPrice).then(() => {
+      const original = event.target.textContent;
+      event.target.textContent = "Copied";
+      setTimeout(() => {
+        event.target.textContent = original;
+      }, 900);
+    });
+    return;
+  }
+
+  const removeIndex = Number(event.target.dataset.planRemove);
+  if (Number.isInteger(removeIndex) && state.plan[removeIndex]) {
+    state.plan[removeIndex] = null;
+    savePlan();
+    renderPlan();
+    renderSummary();
+    loadPlanGuidance();
+    return;
+  }
+
+  const refreshIndex = Number(event.target.dataset.planRefresh);
+  if (Number.isInteger(refreshIndex) && state.plan[refreshIndex]) {
+    const current = findOpportunity(state.plan[refreshIndex].id);
+    const modelGuidance = state.guidance.get(state.plan[refreshIndex].id);
+    if (current) {
+      const status = state.plan[refreshIndex].status;
+      const pinnedAt = state.plan[refreshIndex].pinnedAt;
+      state.plan[refreshIndex] = {
+        ...snapshotOpportunity(current),
+        status,
+        pinnedAt,
+      };
+      savePlan();
+      renderPlan();
+      renderSummary();
+    } else if (modelGuidance?.distribution.available) {
+      state.plan[refreshIndex] = {
+        ...state.plan[refreshIndex],
+        buyOffer: modelGuidance.buyTarget,
+        sellOffer: modelGuidance.sellTarget,
+        reviewPrice: modelGuidance.reviewPrice,
+        fairValue: modelGuidance.distribution.fairValue,
+        q1: modelGuidance.distribution.q1,
+        q3: modelGuidance.distribution.q3,
+        p10: modelGuidance.distribution.p10,
+        sigmaPercent: modelGuidance.distribution.sigmaPercent,
+        currentMid: modelGuidance.currentMid,
+      };
+      savePlan();
+      renderPlan();
+      renderSummary();
+    }
+  }
 });
 
-renderJournal();
+renderPlan();
 loadData();
 loadTracking();
 setInterval(loadTracking, 10_000);
