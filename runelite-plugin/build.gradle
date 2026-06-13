@@ -1,0 +1,22 @@
+plugins {
+    id "java"
+}
+
+group = "com.osrsflipadvisor"
+version = "0.1.0"
+
+repositories {
+    mavenCentral()
+    maven {
+        url = "https://repo.runelite.net"
+    }
+}
+
+dependencies {
+    compileOnly group: "net.runelite", name: "client", version: "latest.release"
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}

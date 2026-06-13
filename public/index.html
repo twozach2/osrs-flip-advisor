@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A local, manual-execution OSRS Grand Exchange flipping advisor."
+    />
+    <title>OSRS Flip Advisor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">Live Grand Exchange intelligence</p>
+        <h1>OSRS Flip Advisor</h1>
+        <p class="subtitle">
+          Exact offer suggestions, liquidity checks, and conservative profit models.
+          You place every trade.
+        </p>
+      </div>
+      <div class="live-state" aria-live="polite">
+        <span class="live-dot"></span>
+        <span id="liveLabel">Connecting...</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="control-panel" aria-labelledby="settingsHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Portfolio controls</p>
+            <h2 id="settingsHeading">Set your working assumptions</h2>
+          </div>
+          <button class="primary-button" id="refreshButton" type="button">Refresh now</button>
+        </div>
+
+        <form id="settingsForm" class="settings-grid">
+          <label>
+            Cash stack
+            <input name="capital" id="capital" value="500m" inputmode="text" />
+          </label>
+          <label>
+            GE slots
+            <input name="slots" type="number" value="8" min="1" max="8" />
+          </label>
+          <label>
+            Cash reserve
+            <span class="input-with-unit">
+              <input name="reservePercent" type="number" value="20" min="0" max="80" />
+              <span>%</span>
+            </span>
+          </label>
+          <label>
+            Expected cycle
+            <span class="input-with-unit">
+              <input name="cycleHours" type="number" value="8" min="1" max="48" />
+              <span>hr</span>
+            </span>
+          </label>
+          <label>
+            Minimum ROI
+            <span class="input-with-unit">
+              <input name="minRoi" type="number" value="0.25" min="0" step="0.05" />
+              <span>%</span>
+            </span>
+          </label>
+          <label>
+            Minimum profit/item
+            <input name="minProfit" value="100" inputmode="numeric" />
+          </label>
+          <label>
+            Minimum 1h round trips
+            <input name="minHourlyVolume" type="number" value="25" min="0" />
+          </label>
+          <label>
+            Max trade age
+            <span class="input-with-unit">
+              <input name="maxAgeMinutes" type="number" value="15" min="1" max="240" />
+              <span>min</span>
+            </span>
+          </label>
+          <label>
+            Offer improvement
+            <span class="input-with-unit">
+              <input name="edgePercent" type="number" value="5" min="0" max="25" />
+              <span>%</span>
+            </span>
+          </label>
+          <label>
+            Max raw spread
+            <span class="input-with-unit">
+              <input name="maxSpreadRatio" type="number" value="25" min="1" max="200" />
+              <span>%</span>
+            </span>
+          </label>
+          <label class="checkbox-field">
+            Adaptive offers
+            <span>
+              <input name="adaptiveOffers" type="checkbox" checked />
+              Use recent activity
+            </span>
+          </label>
+          <label>
+            Maximum risk score
+            <span class="input-with-unit">
+              <input name="maxRiskScore" type="number" value="65" min="0" max="100" />
+              <span>/100</span>
+            </span>
+          </label>
+          <label>
+            Max modeled loss/trade
+            <span class="input-with-unit">
+              <input name="maxLossPercent" type="number" value="0.5" min="0.01" max="10" step="0.05" />
+              <span>% cash</span>
+            </span>
+          </label>
+          <label>
+            Max position size
+            <span class="input-with-unit">
+              <input name="maxPositionPercent" type="number" value="12.5" min="0.5" max="100" step="0.5" />
+              <span>% cash</span>
+            </span>
+          </label>
+        </form>
+        <p class="field-note">
+          "Offer improvement" moves your prices inside the observed spread. Adaptive
+          offers adjust each side using recent activity and buy pressure.
+        </p>
+      </section>
+
+      <section class="summary-grid" aria-label="Portfolio model">
+        <article class="summary-card">
+          <p>Expected weekly profit</p>
+          <strong id="weeklyProfit">--</strong>
+          <span>Fill-adjusted model for the top balanced portfolio</span>
+        </article>
+        <article class="summary-card">
+          <p>Weekly target</p>
+          <strong>1.000b</strong>
+          <span>142.9m/day or 5.95m/hour</span>
+        </article>
+        <article class="summary-card">
+          <p>Target coverage</p>
+          <strong id="targetCoverage">--</strong>
+          <span id="targetGap">Waiting for live prices</span>
+        </article>
+        <article class="summary-card">
+          <p>Qualifying markets</p>
+          <strong id="marketCount">--</strong>
+          <span>After return, liquidity, and risk checks</span>
+        </article>
+        <article class="summary-card">
+          <p>History samples</p>
+          <strong id="historySamples">--</strong>
+          <span id="historyStatus">Building persistent market history</span>
+        </article>
+        <article class="summary-card">
+          <p>Realized tracked profit</p>
+          <strong id="realizedProfit">--</strong>
+          <span id="trackingStatus">RuneLite tracker not connected</span>
+        </article>
+      </section>
+
+      <section class="market-panel">
+        <div class="market-toolbar">
+          <div>
+            <p class="eyebrow">Opportunity board</p>
+            <h2>What to place next</h2>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Strategy">
+            <button class="tab active" data-strategy="balanced" role="tab" type="button">
+              Balanced
+            </button>
+            <button class="tab" data-strategy="highVolume" role="tab" type="button">
+              High volume
+            </button>
+            <button class="tab" data-strategy="highMargin" role="tab" type="button">
+              High margin
+            </button>
+            <button class="tab" data-strategy="lowRisk" role="tab" type="button">
+              Low risk
+            </button>
+            <button class="tab" data-strategy="watchlist" role="tab" type="button">
+              Watchlist
+            </button>
+          </div>
+        </div>
+
+        <div id="errorBanner" class="error-banner" hidden></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Buy offer</th>
+                <th>Sell offer</th>
+                <th>Quantity</th>
+                <th>Profit/item</th>
+                <th>ROI</th>
+                <th>1h volume</th>
+                <th>Age</th>
+                <th>Risk</th>
+                <th>Review below</th>
+                <th>Expected/wk</th>
+                <th>Confidence</th>
+                <th><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="opportunityRows">
+              <tr>
+                <td colspan="13" class="empty-state">Loading live market data...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note">
+          Prices are recommendations based on recent completed trades, not a visible order
+          book. Test small when confidence is low, and cancel offers that stop making sense.
+        </p>
+      </section>
+
+      <section class="journal-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Read-only RuneLite sync</p>
+            <h2>Automatic fill tracking</h2>
+          </div>
+          <button class="secondary-button" id="refreshTrackingButton" type="button">
+            Refresh fills
+          </button>
+        </div>
+        <p class="field-note">
+          The companion plugin observes Grand Exchange offer changes and sends completed
+          fill deltas to this localhost server. It never places or modifies an offer.
+        </p>
+        <div class="tracking-setup">
+          <label>
+            Local endpoint
+            <span><code id="ingestEndpoint">Loading...</code><button data-copy-target="ingestEndpoint" type="button">Copy</button></span>
+          </label>
+          <label>
+            Ingest token
+            <span><code id="ingestToken">Loading...</code><button data-copy-target="ingestToken" type="button">Copy</button></span>
+          </label>
+        </div>
+        <div class="tracking-grid">
+          <div>
+            <h3>Open tracked positions</h3>
+            <div id="trackedPositions" class="compact-list">
+              <p class="empty-state">No open tracked positions.</p>
+            </div>
+          </div>
+          <div>
+            <h3>Recent fills</h3>
+            <div id="recentFills" class="compact-list">
+              <p class="empty-state">No automatic fills received.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="journal-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Manual execution</p>
+            <h2>Planning journal</h2>
+          </div>
+          <button class="secondary-button" id="clearJournalButton" type="button">
+            Clear journal
+          </button>
+        </div>
+        <p class="field-note">
+          Use "Queue" on a recommendation, then update the entry after the trade fills.
+          Journal data stays in this browser.
+        </p>
+        <div id="journal" class="journal-list">
+          <p class="empty-state">No queued trades yet.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Data: OSRS Wiki Real-time Prices API. Conservative 2% seller tax model, capped at
+        5m per item. This tool does not click, type, or interact with the game client.
+      </p>
+    </footer>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

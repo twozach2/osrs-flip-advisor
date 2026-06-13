@@ -1,0 +1,4 @@
+data/ingest-token.txt
+data/item-catalog.json
+data/market-history.jsonl
+data/trades.json
