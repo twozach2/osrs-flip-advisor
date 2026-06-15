@@ -1,11 +1,14 @@
 # OSRS Flip Advisor Tracker
 
 This is the source for a read-only RuneLite companion plugin. It observes
-`GrandExchangeOfferChanged`, calculates newly filled quantity and coins since
-the previous event, and sends that delta to the local advisor.
+`GrandExchangeOfferChanged` and sends two kinds of update to the local advisor:
+the newly filled quantity and coins since the previous event (a fill delta), and
+a snapshot of each open or completed offer (state, price, and progress) so the
+advisor can track unfilled orders and their age.
 
 It does not add menu actions, generate input, place offers, cancel offers, or
-modify the game client.
+modify the game client. The open-offer snapshots are read-only observations; all
+re-pricing and cancelling remains a manual decision you make in the game.
 
 ## Configuration
 

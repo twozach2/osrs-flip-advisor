@@ -25,7 +25,7 @@ import okhttp3.Response;
 
 @PluginDescriptor(
     name = "OSRS Flip Advisor Tracker",
-    description = "Sends read-only Grand Exchange fill deltas to a local advisor",
+    description = "Sends read-only Grand Exchange fill deltas and open-offer updates to a local advisor",
     tags = {"grand exchange", "flipping", "tracking"}
 )
 public class FlipAdvisorTrackerPlugin extends Plugin
@@ -72,6 +72,8 @@ public class FlipAdvisorTrackerPlugin extends Plugin
         OfferSnapshot current = OfferSnapshot.from(offer);
         OfferSnapshot previous = slots.put(slot, current);
 
+        sendOfferSnapshot(slot, current);
+
         if (previous == null || !previous.isSameOffer(current))
         {
             return;
@@ -108,7 +110,7 @@ public class FlipAdvisorTrackerPlugin extends Plugin
         fill.deltaQuantity = deltaQuantity;
         fill.deltaSpent = deltaSpent;
         fill.timestamp = Instant.now().toString();
-        send(fill);
+        sendPayload(fill);
     }
 
     private void seedCurrentOffers()
@@ -118,8 +120,24 @@ public class FlipAdvisorTrackerPlugin extends Plugin
 
         for (int slot = 0; slot < offers.length; slot++)
         {
-            slots.put(slot, OfferSnapshot.from(offers[slot]));
+            OfferSnapshot snapshot = OfferSnapshot.from(offers[slot]);
+            slots.put(slot, snapshot);
+            sendOfferSnapshot(slot, snapshot);
         }
+    }
+
+    private void sendOfferSnapshot(int slot, OfferSnapshot snapshot)
+    {
+        OfferEvent offerEvent = new OfferEvent();
+        offerEvent.account = Long.toUnsignedString(client.getAccountHash());
+        offerEvent.slot = slot;
+        offerEvent.itemId = snapshot.itemId;
+        offerEvent.state = snapshot.state.name();
+        offerEvent.quantitySold = snapshot.quantitySold;
+        offerEvent.totalQuantity = snapshot.totalQuantity;
+        offerEvent.offerPrice = snapshot.price;
+        offerEvent.timestamp = Instant.now().toString();
+        sendPayload(offerEvent);
     }
 
     private boolean isTradeState(GrandExchangeOfferState state)
@@ -132,7 +150,7 @@ public class FlipAdvisorTrackerPlugin extends Plugin
             || state == GrandExchangeOfferState.CANCELLED_SELL;
     }
 
-    private void send(FillEvent fill)
+    private void sendPayload(Object payload)
     {
         if (config.token().trim().isEmpty())
         {
@@ -142,7 +160,7 @@ public class FlipAdvisorTrackerPlugin extends Plugin
         Request request = new Request.Builder()
             .url(config.endpoint())
             .header("X-Advisor-Token", config.token().trim())
-            .post(RequestBody.create(JSON, gson.toJson(fill)))
+            .post(RequestBody.create(JSON, gson.toJson(payload)))
             .build();
 
         httpClient.newCall(request).enqueue(new Callback()
@@ -219,6 +237,19 @@ public class FlipAdvisorTrackerPlugin extends Plugin
         int totalSpent;
         int deltaQuantity;
         int deltaSpent;
+        String timestamp;
+    }
+
+    private static class OfferEvent
+    {
+        final String kind = "offer";
+        String account;
+        int slot;
+        int itemId;
+        String state;
+        int quantitySold;
+        int totalQuantity;
+        int offerPrice;
         String timestamp;
     }
 }

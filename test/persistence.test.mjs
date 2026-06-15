@@ -102,3 +102,83 @@ test("fill events persist and calculate FIFO realized profit", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("open offers upsert, preserve first-seen, reset on re-price, and clear on terminal state", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "osrs-open-"));
+
+  try {
+    const path = join(directory, "trades.json");
+    const store = new TradeStore(path);
+    await store.init();
+
+    const hour = 60 * 60 * 1000;
+    const placedAt = new Date(Date.now() - 3 * hour).toISOString();
+    const partialAt = new Date(Date.now() - 2 * hour).toISOString();
+    const repricedAt = new Date(Date.now() - 1 * hour).toISOString();
+
+    await store.ingestOffer({
+      kind: "offer",
+      account: "test",
+      slot: 2,
+      itemId: 555,
+      state: "BUYING",
+      quantitySold: 0,
+      totalQuantity: 100,
+      offerPrice: 1_000,
+      timestamp: placedAt,
+    });
+    await store.ingestOffer({
+      kind: "offer",
+      account: "test",
+      slot: 2,
+      itemId: 555,
+      state: "BUYING",
+      quantitySold: 30,
+      totalQuantity: 100,
+      offerPrice: 1_000,
+      timestamp: partialAt,
+    });
+
+    let open = store.getSummary().openOrders;
+    assert.equal(open.length, 1);
+    assert.equal(open[0].side, "buy");
+    assert.equal(open[0].firstSeenAt, placedAt);
+    assert.equal(open[0].updatedAt, partialAt);
+    assert.equal(open[0].quantitySold, 30);
+
+    await store.ingestOffer({
+      kind: "offer",
+      account: "test",
+      slot: 2,
+      itemId: 555,
+      state: "BUYING",
+      quantitySold: 0,
+      totalQuantity: 100,
+      offerPrice: 1_010,
+      timestamp: repricedAt,
+    });
+
+    open = store.getSummary().openOrders;
+    assert.equal(open.length, 1);
+    assert.equal(open[0].firstSeenAt, repricedAt);
+
+    const reloaded = new TradeStore(path);
+    await reloaded.init();
+    assert.equal(reloaded.getSummary().openOrders.length, 1);
+
+    await reloaded.ingestOffer({
+      kind: "offer",
+      account: "test",
+      slot: 2,
+      itemId: 555,
+      state: "BOUGHT",
+      quantitySold: 100,
+      totalQuantity: 100,
+      offerPrice: 1_010,
+      timestamp: new Date().toISOString(),
+    });
+    assert.equal(reloaded.getSummary().openOrders.length, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

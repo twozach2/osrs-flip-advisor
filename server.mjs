@@ -213,6 +213,7 @@ async function serveOpportunities(requestUrl, response) {
     ),
     entrySigma: numberParameter(requestUrl.searchParams, "entrySigma", 0.75),
     exitSigma: numberParameter(requestUrl.searchParams, "exitSigma", 0.75),
+    maxEntryFillHours: numberParameter(requestUrl.searchParams, "maxEntryFillHours", 6),
     maxExitSigma: numberParameter(requestUrl.searchParams, "maxExitSigma", 3),
     minimumDistributionSamples: numberParameter(
       requestUrl.searchParams,
@@ -301,6 +302,7 @@ async function serveTracking(response) {
       recentFills: summary.recentFills.map(addName),
       recentRealized: summary.recentRealized.map(addName),
       positions,
+      openOrders: summary.openOrders.map(addName),
     }),
   );
 }
@@ -319,7 +321,10 @@ async function serveGeEvent(request, response) {
     return;
   }
 
-  const result = await tradeStore.ingest(payload);
+  const result =
+    String(payload.kind || "").toLowerCase() === "offer"
+      ? await tradeStore.ingestOffer(payload)
+      : await tradeStore.ingest(payload);
   response.writeHead(200, {
     "Content-Type": contentTypes[".json"],
     "Cache-Control": "no-store",
