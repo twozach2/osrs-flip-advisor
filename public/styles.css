@@ -551,6 +551,25 @@ tbody tr:hover {
   font-size: 0.67rem;
 }
 
+.item-cell .trend-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.trend-badge.down {
+  background: rgb(220 131 116 / 13%);
+  color: var(--red);
+}
+
+.trend-badge.up {
+  background: rgb(121 201 151 / 13%);
+  color: var(--green);
+}
+
 .watch-button {
   padding: 0;
   border: 0;

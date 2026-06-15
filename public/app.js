@@ -150,6 +150,32 @@ function riskClass(score) {
   return "low";
 }
 
+function formatHours(value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  if (value < 1) {
+    return "<1h";
+  }
+  return `${value.toFixed(1)}h`;
+}
+
+function trendBadge(opportunity) {
+  const strength = Number(opportunity.trendStrength) || 0;
+  if (strength <= 0) {
+    return "";
+  }
+
+  const drift = Number(opportunity.driftPerHour) || 0;
+  const direction = drift < 0 ? "down" : "up";
+  const halfLife = Number(opportunity.distribution?.effectiveHalfLifeHours) || 0;
+  const label = `${drift >= 0 ? "+" : ""}${(drift * 100).toFixed(1)}%/h`;
+  const title = `Trending ${direction}: ${label} drift, strength ${strength.toFixed(
+    2,
+  )}, effective half-life ${halfLife.toFixed(1)}h`;
+  return `<span class="trend-badge ${direction}" title="${title}">${label}</span>`;
+}
+
 function rowHtml(opportunity) {
   const watched = state.watchlist.has(opportunity.id);
   const age =
@@ -181,10 +207,11 @@ function rowHtml(opportunity) {
           <div>
             <strong>${escapeHtml(opportunity.name)}</strong>
             <span>${bandLabel} - ${formatCoins(opportunity.capitalRequired, true)} allocated${historyLabel}</span>
+            ${trendBadge(opportunity)}
           </div>
         </div>
       </td>
-      <td class="price buy-price" title="Current model z-score: ${opportunity.distribution.zScore?.toFixed(2) || "--"}">
+      <td class="price buy-price" title="Current model z-score: ${opportunity.distribution.zScore?.toFixed(2) || "--"}; est. fill ${formatHours(opportunity.entryFillHours)} at entry depth ${(Number(opportunity.entryDepth) || 0).toFixed(2)} sigma">
         ${formatCoins(opportunity.buyOffer)}
         <button class="copy-button" data-action="copy-buy" data-id="${opportunity.id}" type="button">Copy</button>
       </td>
@@ -203,7 +230,7 @@ function rowHtml(opportunity) {
         </span>
       </td>
       <td title="Modeled position loss: ${formatCoins(opportunity.estimatedPositionLoss)}">${formatCoins(opportunity.reviewPrice)}</td>
-      <td title="Best-case model: ${formatCoins(opportunity.weeklyModel, true)}; entry fill ${(opportunity.fillEstimate * 100).toFixed(0)}%, exit fill ${(opportunity.exitFillProbability * 100).toFixed(0)}%; expected value ${formatCoins(opportunity.evPerUnit, true)}/unit">${formatCoins(opportunity.expectedWeeklyProfit, true)}</td>
+      <td title="Best-case model: ${formatCoins(opportunity.weeklyModel, true)}; entry fill ${(opportunity.fillEstimate * 100).toFixed(0)}% (~${formatHours(opportunity.entryFillHours)}), exit fill ${(opportunity.exitFillProbability * 100).toFixed(0)}% (~${formatHours(opportunity.exitFillHours)}); expected value ${formatCoins(opportunity.evPerUnit, true)}/unit${opportunity.trendStrength > 0 ? `; drift-adjusted exit ${formatCoins(opportunity.projectedFairExit)}` : ""}">${formatCoins(opportunity.expectedWeeklyProfit, true)}</td>
       <td>
         <span class="confidence ${confidenceClass(opportunity.confidence)}">
           ${opportunity.confidence}%
