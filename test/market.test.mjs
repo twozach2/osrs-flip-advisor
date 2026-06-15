@@ -409,3 +409,99 @@ test("rejects buying into a crash where the realistic exit is below entry", () =
   assert.ok(healthy);
   assert.equal(crashed, null);
 });
+
+function flowRecord(now, latest, history, sellerVolume, buyerVolume) {
+  return {
+    item: { id: 1, name: "Flow item", limit: 1_000, members: true },
+    latest,
+    fiveMinute: {
+      avgHighPrice: latest.high,
+      avgLowPrice: latest.low,
+      highPriceVolume: Math.round(buyerVolume / 10),
+      lowPriceVolume: Math.round(sellerVolume / 10),
+    },
+    oneHour: {
+      avgHighPrice: latest.high,
+      avgLowPrice: latest.low,
+      highPriceVolume: buyerVolume,
+      lowPriceVolume: sellerVolume,
+    },
+    history,
+  };
+}
+
+const oscillatingHistory = (now) =>
+  Array.from({ length: 48 }, (_, index) => [
+    now - (47 - index) * 3600,
+    950 + (index % 5) * 25,
+    0.02,
+    1_000,
+  ]);
+
+test("adaptive entry tightens the buy offer to meet the fill-time target", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const latest = { low: 990, high: 1_010, lowTime: now, highTime: now };
+  const history = oscillatingHistory(now);
+  const legacy = buildOpportunity(
+    flowRecord(now, latest, history, 500, 1_000),
+    evSettings({ adaptiveEntry: false }),
+    now,
+  );
+  const adaptive = buildOpportunity(
+    flowRecord(now, latest, history, 500, 1_000),
+    evSettings({ adaptiveEntry: true, maxEntryFillHours: 6 }),
+    now,
+  );
+
+  assert.ok(legacy && adaptive);
+  assert.ok(adaptive.buyOffer > legacy.buyOffer);
+  assert.ok(adaptive.entryDepth < legacy.entryDepth);
+  assert.ok(adaptive.entryFillHours <= 6 + 1e-6);
+});
+
+test("adaptive entry rejects an entry that cannot fill in time", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const latest = { low: 990, high: 1_010, lowTime: now, highTime: now };
+  const history = oscillatingHistory(now);
+  const legacy = buildOpportunity(
+    flowRecord(now, latest, history, 300, 1_000),
+    evSettings({ adaptiveEntry: false }),
+    now,
+  );
+  const adaptive = buildOpportunity(
+    flowRecord(now, latest, history, 300, 1_000),
+    evSettings({ adaptiveEntry: true, maxEntryFillHours: 6 }),
+    now,
+  );
+
+  assert.ok(legacy);
+  assert.equal(adaptive, null);
+});
+
+test("drift-aware EV discounts a downtrend", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const latest = { low: 680, high: 695, lowTime: now, highTime: now };
+  const history = Array.from({ length: 48 }, (_, index) => [
+    now - (47 - index) * 3600,
+    Math.round(1_100 * Math.pow(0.99, index)),
+    0.02,
+    1_000,
+  ]);
+  const driftOff = buildOpportunity(
+    flowRecord(now, latest, history, 5_000, 5_000),
+    evSettings({ driftAware: false }),
+    now,
+  );
+  const driftOn = buildOpportunity(
+    flowRecord(now, latest, history, 5_000, 5_000),
+    evSettings({ driftAware: true }),
+    now,
+  );
+
+  assert.ok(driftOff && driftOn);
+  assert.ok(driftOff.trendStrength > 0);
+  assert.ok(driftOff.driftPerHour < 0);
+  assert.ok(driftOn.evPerUnit < driftOff.evPerUnit);
+  assert.ok(driftOn.exitFillProbability < driftOff.exitFillProbability);
+  assert.ok(driftOn.projectedFairExit <= driftOff.projectedFairExit);
+});

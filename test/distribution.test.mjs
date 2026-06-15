@@ -79,6 +79,27 @@ test("adaptive horizon stays fixed when there is no trend", () => {
   assert.equal(adaptive.effectiveHalfLifeHours, adaptive.halfLifeHours);
 });
 
+test("drift per hour is exposed with the correct sign", () => {
+  const downtrend = Array.from({ length: 72 }, (_, index) =>
+    Math.round(1_100 * Math.pow(0.99, index)),
+  );
+  const oscillating = Array.from({ length: 72 }, (_, index) =>
+    Math.round(1_000 * (1 + 0.03 * Math.sin(index / 4))),
+  );
+  const falling = analyzeDistribution(hourlySamples(downtrend), {
+    nowSeconds: 2_000_000,
+    adaptiveHorizon: true,
+  });
+  const flat = analyzeDistribution(hourlySamples(oscillating), {
+    nowSeconds: 2_000_000,
+    adaptiveHorizon: true,
+  });
+
+  assert.ok(falling.driftPerHour < 0);
+  assert.ok(falling.trendStrength > 0);
+  assert.equal(flat.trendStrength, 0);
+});
+
 test("insufficient history is explicit", () => {
   const result = analyzeDistribution(hourlySamples([100, 101, 102]), {
     nowSeconds: 2_000_000,
