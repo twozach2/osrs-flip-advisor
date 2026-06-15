@@ -203,7 +203,7 @@ function rowHtml(opportunity) {
         </span>
       </td>
       <td title="Modeled position loss: ${formatCoins(opportunity.estimatedPositionLoss)}">${formatCoins(opportunity.reviewPrice)}</td>
-      <td title="Raw model: ${formatCoins(opportunity.weeklyModel, true)}; estimated fill ${(opportunity.fillEstimate * 100).toFixed(0)}%">${formatCoins(opportunity.expectedWeeklyProfit, true)}</td>
+      <td title="Best-case model: ${formatCoins(opportunity.weeklyModel, true)}; entry fill ${(opportunity.fillEstimate * 100).toFixed(0)}%, exit fill ${(opportunity.exitFillProbability * 100).toFixed(0)}%; expected value ${formatCoins(opportunity.evPerUnit, true)}/unit">${formatCoins(opportunity.expectedWeeklyProfit, true)}</td>
       <td>
         <span class="confidence ${confidenceClass(opportunity.confidence)}">
           ${opportunity.confidence}%

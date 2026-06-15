@@ -308,3 +308,104 @@ test("portfolio planning widens exits enough to clear tax within its sigma cap",
   assert.ok(ranked.plan.every((item) => item.profit >= 100));
   assert.ok(ranked.plan.every((item) => item.effectiveExitSigma <= 3));
 });
+
+function evSettings(overrides = {}) {
+  return {
+    capital: 100_000_000,
+    slotBudget: 5_000_000,
+    maxPositionPercent: 1,
+    maxLossPercent: 1,
+    maxRiskScore: 100,
+    edgePercent: 0.05,
+    adaptiveOffers: false,
+    requireDistribution: true,
+    distributionWindowHours: 72,
+    distributionHalfLifeHours: 24,
+    minimumDistributionSamples: 24,
+    entrySigma: 0.75,
+    exitSigma: 0.75,
+    maxExitSigma: 3,
+    maxAgeMinutes: 15,
+    minProfit: 1,
+    minRoi: 0,
+    minHourlyVolume: 1,
+    maxSpreadRatio: 1,
+    cycleHours: 8,
+    participationRate: 0.02,
+    ...overrides,
+  };
+}
+
+function evRecord(now, latest) {
+  return {
+    item: { id: 1, name: "EV item", limit: 1_000, members: true },
+    latest,
+    fiveMinute: {
+      avgHighPrice: 1_010,
+      avgLowPrice: 990,
+      highPriceVolume: 100,
+      lowPriceVolume: 100,
+    },
+    oneHour: {
+      avgHighPrice: 1_010,
+      avgLowPrice: 990,
+      highPriceVolume: 1_000,
+      lowPriceVolume: 1_000,
+    },
+    history: Array.from({ length: 48 }, (_, index) => [
+      now - (47 - index) * 3600,
+      950 + (index % 5) * 25,
+      0.02,
+      1_000,
+    ]),
+  };
+}
+
+test("expected profit discounts the optimistic exit target", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const opp = buildOpportunity(
+    evRecord(now, { low: 990, high: 1_010, lowTime: now, highTime: now }),
+    evSettings(),
+    now,
+  );
+
+  assert.ok(opp);
+  assert.ok(opp.exitFillProbability > 0 && opp.exitFillProbability < 1);
+  assert.ok(opp.evPerUnit < opp.profit);
+  assert.ok(opp.expectedWeeklyProfit < opp.weeklyModel);
+});
+
+test("a wider exit target lowers the modeled exit-fill probability", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const narrow = buildOpportunity(
+    evRecord(now, { low: 990, high: 1_010, lowTime: now, highTime: now }),
+    evSettings({ exitSigma: 0.75 }),
+    now,
+  );
+  const wide = buildOpportunity(
+    evRecord(now, { low: 990, high: 1_010, lowTime: now, highTime: now }),
+    evSettings({ exitSigma: 2 }),
+    now,
+  );
+
+  assert.ok(narrow && wide);
+  assert.ok(wide.effectiveExitSigma > narrow.effectiveExitSigma);
+  assert.ok(wide.exitFillProbability < narrow.exitFillProbability);
+});
+
+test("rejects buying into a crash where the realistic exit is below entry", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const healthy = buildOpportunity(
+    evRecord(now, { low: 990, high: 1_010, lowTime: now, highTime: now }),
+    evSettings(),
+    now,
+  );
+  const crashed = buildOpportunity(
+    evRecord(now, { low: 850, high: 860, lowTime: now, highTime: now }),
+    evSettings(),
+    now,
+  );
+
+  assert.ok(healthy);
+  assert.equal(crashed, null);
+});
