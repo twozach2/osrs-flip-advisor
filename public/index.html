@@ -293,7 +293,8 @@
         </div>
         <p class="field-note">
           The companion plugin observes Grand Exchange offer changes and sends completed
-          fill deltas to this localhost server. It never places or modifies an offer.
+          fill deltas and open-offer snapshots to this localhost server. It never places
+          or modifies an offer; re-pricing and cancelling stay manual decisions.
         </p>
         <div class="tracking-setup">
           <label>
@@ -304,6 +305,12 @@
             Ingest token
             <span><code id="ingestToken">Loading...</code><button data-copy-target="ingestToken" type="button">Copy</button></span>
           </label>
+        </div>
+        <div class="open-orders-block">
+          <h3>Open orders</h3>
+          <div id="openOrders" class="compact-list">
+            <p class="empty-state">No open orders reported.</p>
+          </div>
         </div>
         <div class="tracking-grid">
           <div>
@@ -330,6 +337,6 @@
       </p>
     </footer>
 
-    <script type="module" src="/app.js?v=0.4"></script>
+    <script type="module" src="/app.js?v=0.5"></script>
   </body>
 </html>

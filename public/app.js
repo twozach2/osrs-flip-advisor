@@ -27,6 +27,7 @@ const elements = {
   ingestEndpoint: document.querySelector("#ingestEndpoint"),
   ingestToken: document.querySelector("#ingestToken"),
   trackedPositions: document.querySelector("#trackedPositions"),
+  openOrders: document.querySelector("#openOrders"),
   recentFills: document.querySelector("#recentFills"),
   refreshTrackingButton: document.querySelector("#refreshTrackingButton"),
   slotPlan: document.querySelector("#slotPlan"),
@@ -549,6 +550,108 @@ function findOpportunity(id) {
   return combined.find((item) => item.id === id);
 }
 
+function openOrderVerdict(order, maxHours) {
+  const ageHours = (Date.now() - new Date(order.firstSeenAt).getTime()) / 3_600_000;
+  const remaining = Math.max(0, order.totalQuantity - order.quantitySold);
+  const name = escapeHtml(order.name);
+  const stuck = ageHours > maxHours && remaining > 0;
+
+  if (!stuck) {
+    return {
+      level: "ok",
+      ageHours,
+      title: remaining > 0 ? "Filling on schedule" : "Fully filled",
+      detail:
+        remaining > 0
+          ? `${formatHours(ageHours)} open of ${formatHours(maxHours)} target; ${formatCoins(remaining)} left.`
+          : "Awaiting the completion event.",
+    };
+  }
+
+  const opportunity = findOpportunity(order.itemId);
+  if (!opportunity) {
+    return {
+      level: "info",
+      ageHours,
+      title: `Reassess ${name} manually`,
+      detail: `Stuck ${formatHours(ageHours)} (> ${formatHours(maxHours)} target) but no live model for this item. Decide in-game.`,
+    };
+  }
+
+  const drift = Number(opportunity.driftPerHour) || 0;
+  const driftPct = (Math.exp(drift) - 1) * 100;
+  const modelExit = Number(opportunity.sellOffer) || 0;
+  const target = Math.round(Number(opportunity.projectedFairExit) || modelExit || order.offerPrice);
+
+  if (order.side === "sell") {
+    if (order.offerPrice > target) {
+      return {
+        level: "reprice",
+        ageHours,
+        title: `Lower ask on ${name} to ~${formatCoins(target)}`,
+        detail: `Sell stuck ${formatHours(ageHours)}; your ask ${formatCoins(order.offerPrice)} is above the drift-adjusted exit ${formatCoins(target)} (${driftPct.toFixed(1)}%/h). Lower it to free capital.`,
+      };
+    }
+    return {
+      level: "hold",
+      ageHours,
+      title: `Hold ${name}`,
+      detail: `Sell stuck ${formatHours(ageHours)}, but your ask ${formatCoins(order.offerPrice)} is at/below the model exit ${formatCoins(target)}. Holding is reasonable.`,
+    };
+  }
+
+  const fastFillPrice = Math.max(Math.round(Number(opportunity.currentMid) || 0), order.offerPrice + 1);
+  const exitNet = target * 0.98;
+  const marginAtFastFill = Math.round(exitNet - fastFillPrice);
+
+  if (drift < -0.002 || marginAtFastFill <= 0) {
+    return {
+      level: "cancel",
+      ageHours,
+      title: `Cancel ${name}`,
+      detail: `Stuck ${formatHours(ageHours)}; ${driftPct.toFixed(1)}%/h drift. Re-pricing to ~${formatCoins(fastFillPrice)} against the drift-adjusted exit ${formatCoins(target)} leaves ${formatCoins(marginAtFastFill)}/unit. Cancel and redeploy.`,
+    };
+  }
+
+  return {
+    level: "reprice",
+    ageHours,
+    title: `Raise bid on ${name} to ~${formatCoins(fastFillPrice)}`,
+    detail: `Stuck ${formatHours(ageHours)} (> ${formatHours(maxHours)} target); ${driftPct.toFixed(1)}%/h trend. Drift-adjusted exit ${formatCoins(target)} keeps ~${formatCoins(marginAtFastFill)}/unit at the faster fill. Re-price up.`,
+  };
+}
+
+function renderOpenOrders(tracking) {
+  if (!elements.openOrders) {
+    return;
+  }
+  const orders = tracking.openOrders || [];
+  const maxHours = Number(state.data?.settings?.maxEntryFillHours) || 6;
+
+  if (!orders.length) {
+    elements.openOrders.innerHTML = `<p class="empty-state">No open orders reported.</p>`;
+    return;
+  }
+
+  elements.openOrders.innerHTML = orders
+    .map((order) => {
+      const verdict = openOrderVerdict(order, maxHours);
+      return `
+        <article class="compact-entry open-order ${verdict.level}">
+          <div>
+            <strong>${escapeHtml(order.name)} <span class="order-tag ${order.side}">${order.side.toUpperCase()}</span></strong>
+            <span>${formatCoins(order.quantitySold)}/${formatCoins(order.totalQuantity)} at ${formatCoins(order.offerPrice)} - open ${formatHours(verdict.ageHours)}</span>
+          </div>
+          <div class="order-verdict ${verdict.level}">
+            <strong>${verdict.title}</strong>
+            <span>${verdict.detail}</span>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 function renderTracking() {
   const tracking = state.tracking;
   if (!tracking) {
@@ -599,6 +702,8 @@ function renderTracking() {
         )
         .join("")
     : `<p class="empty-state">No automatic fills received.</p>`;
+
+  renderOpenOrders(tracking);
 }
 
 async function loadTracking() {

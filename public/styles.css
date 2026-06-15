@@ -769,6 +769,70 @@ tbody tr:hover {
   color: var(--red) !important;
 }
 
+.open-orders-block {
+  margin-top: 22px;
+}
+
+.open-orders-block h3 {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.open-order {
+  align-items: flex-start;
+  border-left: 3px solid var(--line);
+}
+
+.open-order.cancel {
+  border-left-color: var(--red);
+}
+
+.open-order.reprice {
+  border-left-color: var(--gold);
+}
+
+.open-order.hold {
+  border-left-color: var(--blue);
+}
+
+.open-order.ok {
+  border-left-color: var(--green);
+}
+
+.order-verdict {
+  max-width: 62%;
+}
+
+.order-verdict.cancel strong {
+  color: var(--red);
+}
+
+.order-verdict.reprice strong {
+  color: var(--gold);
+}
+
+.compact-entry .order-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.order-tag.buy {
+  background: rgb(143 182 203 / 13%);
+  color: var(--blue);
+}
+
+.order-tag.sell {
+  background: rgb(232 189 97 / 13%);
+  color: var(--gold);
+}
+
 .journal-list {
   display: grid;
   gap: 8px;
