@@ -69,6 +69,10 @@ The read-only companion source is in `runelite-plugin/`. Start the advisor,
 open the Automatic Fill Tracking panel, and copy its endpoint and token into
 the plugin configuration.
 
+For a complete, beginner-friendly, step-by-step walkthrough of installing the
+tools and running the plugin in RuneLite on Windows, see
+[`runelite-plugin/README.md`](runelite-plugin/README.md).
+
 The plugin observes `GrandExchangeOfferChanged` and sends only newly filled
 quantity and coin deltas to localhost. It does not click, type, create offers,
 cancel offers, or alter prices. The source should go through RuneLite Plugin
