@@ -48,6 +48,37 @@ test("entry and exit sigma controls widen the target band", () => {
   assert.ok(wide.sellTarget > narrow.sellTarget);
 });
 
+test("adaptive horizon shortens the effective window during a sustained trend", () => {
+  const prices = Array.from({ length: 72 }, (_, index) =>
+    Math.round(1_000 * Math.pow(1.01, index)),
+  );
+  const legacy = analyzeDistribution(hourlySamples(prices), {
+    nowSeconds: 2_000_000,
+    adaptiveHorizon: false,
+  });
+  const adaptive = analyzeDistribution(hourlySamples(prices), {
+    nowSeconds: 2_000_000,
+    adaptiveHorizon: true,
+  });
+
+  assert.equal(legacy.effectiveHalfLifeHours, legacy.halfLifeHours);
+  assert.ok(adaptive.effectiveHalfLifeHours < adaptive.halfLifeHours);
+  assert.ok(adaptive.trendStrength > 0);
+  assert.ok(adaptive.fairValue > legacy.fairValue);
+});
+
+test("adaptive horizon stays fixed when there is no trend", () => {
+  const prices = Array.from({ length: 72 }, (_, index) =>
+    Math.round(1_000 * (1 + 0.03 * Math.sin(index / 4))),
+  );
+  const adaptive = analyzeDistribution(hourlySamples(prices), {
+    nowSeconds: 2_000_000,
+    adaptiveHorizon: true,
+  });
+
+  assert.equal(adaptive.effectiveHalfLifeHours, adaptive.halfLifeHours);
+});
+
 test("insufficient history is explicit", () => {
   const result = analyzeDistribution(hourlySamples([100, 101, 102]), {
     nowSeconds: 2_000_000,
