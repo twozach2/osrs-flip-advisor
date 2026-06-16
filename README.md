@@ -34,7 +34,11 @@ use the bundled Node runtime.
   item later drops out of the opportunity board.
 - Sizes each suggestion against cash, reserve, GE slots, buy limits, and recent
   liquidity.
-- Provides user-triggered copy buttons and live manual repricing guidance.
+- Displays large, tabular entry, exit, and quantity values for fast read-and-type
+  entry into the game client, with an optional toggle that snaps prices and
+  quantities to nearby 1/2/5-series numbers (within ~1.5%). Snapping is
+  margin-preserving: buys snap down, sells snap up, and quantities snap down,
+  so the modeled post-tax margin can only widen, never shrink.
 - Keeps a watchlist and manual trade journal in browser local storage.
 - Stores compact five-minute market snapshots for 14 days in
   `data/market-history.jsonl`.
@@ -62,6 +66,16 @@ reassess or exit a position, not an automatic stop order. New items detected
 after the first catalog snapshot receive an additional risk penalty. Items with
 limited local history are also sized more conservatively while the database
 builds.
+
+The Old School RuneScape client does not accept paste into the Grand Exchange
+price or quantity prompts, so every recommended value has to be typed by hand.
+The advisor renders these values in a large, tabular style for accurate
+read-and-type entry and offers an optional type-friendly rounding toggle to
+reduce keystrokes. The snap direction is margin-preserving (buys down, sells up,
+quantities down) and is double-checked against the 2% sale tax before display,
+so rounding cannot turn a profitable recommendation into a losing one. (Paste
+into RuneLite's plugin configuration field still works normally — that is a
+separate Java input, not the in-game prompt.)
 
 ## Automatic fill tracking
 

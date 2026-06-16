@@ -135,6 +135,22 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+  flex-wrap: wrap;
+}
+
+.round-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+
+.round-toggle input {
+  accent-color: var(--gold);
 }
 
 .primary-button,
@@ -355,7 +371,9 @@ select:focus {
 }
 
 .slot-command strong {
-  font-size: 0.84rem;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 
 .slot-command span {
@@ -391,7 +409,9 @@ select:focus {
 }
 
 .slot-prices strong {
-  font-size: 0.76rem;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 
 .slot-band {
@@ -602,29 +622,44 @@ tbody tr:hover {
   color: var(--gold);
 }
 
+.buy-price,
+.sell-price,
+.qty-cell {
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
 .buy-price {
   color: var(--blue);
-  font-weight: 800;
 }
 
 .sell-price {
   color: var(--green);
-  font-weight: 800;
 }
 
-.copy-button {
-  display: block;
-  margin: 4px 0 0 auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.61rem;
-  font-weight: 700;
-}
-
-.copy-button:hover {
+.qty-cell {
   color: var(--text);
+}
+
+.type-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.snap-fallback {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.55;
+  cursor: help;
 }
 
 .confidence {

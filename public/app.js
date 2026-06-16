@@ -8,6 +8,7 @@ const state = {
   guidance: new Map(),
   tracking: null,
   timer: null,
+  roundFriendly: localStorage.getItem("osrs-flip-round-friendly") === "1",
 };
 
 const elements = {
@@ -33,6 +34,7 @@ const elements = {
   slotPlan: document.querySelector("#slotPlan"),
   buildPlanButton: document.querySelector("#buildPlanButton"),
   clearPlanButton: document.querySelector("#clearPlanButton"),
+  roundFriendlyToggle: document.querySelector("#roundFriendlyToggle"),
 };
 
 function loadPlan() {
@@ -82,6 +84,119 @@ function formatCoins(value, compact = false) {
     return `${(value / 1_000).toFixed(1)}k`;
   }
   return Math.round(value).toLocaleString("en-US");
+}
+
+// Snap to a "type-friendly" 1/2/5 series step near the value, so the player
+// has fewer keystrokes to enter into the OSRS client (which does not accept
+// paste). Step is at most ~1.5% of the value, keeping the deviation small.
+function typeFriendlySnap(value, mode = "nearest") {
+  const v = Math.round(value);
+  if (!Number.isFinite(v) || v <= 0) {
+    return v;
+  }
+
+  const targetStep = Math.max(1, v * 0.015);
+  const exponent = Math.floor(Math.log10(targetStep));
+  const base = Math.pow(10, exponent);
+  let step = 1;
+  for (const candidate of [1, 2, 5, 10]) {
+    if (candidate * base <= targetStep) {
+      step = candidate * base;
+    }
+  }
+
+  const rounder =
+    mode === "floor" ? Math.floor : mode === "ceil" ? Math.ceil : Math.round;
+  return rounder(v / step) * step;
+}
+
+// Margin-preserving direction: buys snap DOWN, sells snap UP, quantities snap
+// DOWN. This way rounding can only widen the model's spread (and never deploy
+// more capital than the model allocated), so a profitable trade stays at least
+// as profitable after the OSRS 2% sale tax.
+function snapMode(side) {
+  if (side === "sell") {
+    return "ceil";
+  }
+  return "floor";
+}
+
+function snapValue(value, side) {
+  if (!Number.isFinite(value)) {
+    return value;
+  }
+  if (!state.roundFriendly) {
+    return Math.round(value);
+  }
+  return typeFriendlySnap(value, snapMode(side));
+}
+
+// Mirror of lib/market.mjs#calculateTax: Math.min(Math.floor(s * 0.02), 5_000_000).
+const CLIENT_TAX_RATE = 0.02;
+const CLIENT_TAX_CAP = 5_000_000;
+function clientTax(sellPrice) {
+  if (!Number.isFinite(sellPrice) || sellPrice <= 0) {
+    return 0;
+  }
+  return Math.min(Math.floor(sellPrice * CLIENT_TAX_RATE), CLIENT_TAX_CAP);
+}
+
+// Snap a paired buy/sell trade and guarantee post-tax profit per unit is still
+// strictly positive. The margin-preserving direction makes this an invariant
+// when the model already passes; the defensive check below covers degenerate
+// inputs (e.g. a one-step trade where the model itself was marginal).
+function snapTradePair(buy, sell) {
+  const exactBuy = Math.round(buy);
+  const exactSell = Math.round(sell);
+  if (!state.roundFriendly) {
+    return { buy: exactBuy, sell: exactSell, fellBack: false };
+  }
+  const snappedBuy = snapValue(buy, "buy");
+  const snappedSell = snapValue(sell, "sell");
+  if (snappedSell - clientTax(snappedSell) <= snappedBuy) {
+    return { buy: exactBuy, sell: exactSell, fellBack: true };
+  }
+  return { buy: snappedBuy, sell: snappedSell, fellBack: false };
+}
+
+// Renders a value the player needs to type. Optionally annotates with the
+// exact model value when the snap moved it.
+function renderTypeable(displayed, exact) {
+  if (!Number.isFinite(displayed)) {
+    return "--";
+  }
+  const primary = displayed.toLocaleString("en-US");
+  if (!state.roundFriendly || !Number.isFinite(exact)) {
+    return primary;
+  }
+  const exactRounded = Math.round(exact);
+  if (exactRounded === displayed) {
+    return primary;
+  }
+  return `${primary}<span class="type-hint">${exactRounded.toLocaleString("en-US")}</span>`;
+}
+
+// Convenience wrapper for the single-value, non-paired cases (e.g. quantities,
+// or the slot card's "current exit" cell where there is no concurrent buy).
+function renderTypeableSide(value, side) {
+  const snapped = snapValue(value, side);
+  return renderTypeable(snapped, value);
+}
+
+// Plain-text version (no markup) for use inside string titles like
+// `BUY 100 at 12,400`.
+function formatTypeable(value, side) {
+  const snapped = snapValue(value, side);
+  if (!Number.isFinite(snapped)) {
+    return "--";
+  }
+  return snapped.toLocaleString("en-US");
+}
+
+// Visible only when snapTradePair's post-tax guarantee declined to apply and
+// fell back to the exact model values. In normal use this never appears.
+function snapFallbackMarker() {
+  return `<span class="snap-fallback" title="Type-friendly snap declined for this trade: the rounded numbers would not stay profitable after the 2% sale tax, so the exact model values are shown instead.">↺</span>`;
 }
 
 function escapeHtml(value) {
@@ -230,6 +345,7 @@ function rowHtml(opportunity) {
   const bandLabel = opportunity.distribution.available
     ? `Q1 ${formatCoins(opportunity.distribution.q1)} - Q3 ${formatCoins(opportunity.distribution.q3)}`
     : "Live fallback";
+  const pair = snapTradePair(opportunity.buyOffer, opportunity.sellOffer);
 
   return `
     <tr>
@@ -251,14 +367,12 @@ function rowHtml(opportunity) {
         </div>
       </td>
       <td class="price buy-price" title="Current model z-score: ${opportunity.distribution.zScore?.toFixed(2) || "--"}; est. fill ${formatHours(opportunity.entryFillHours)} at entry depth ${(Number(opportunity.entryDepth) || 0).toFixed(2)} sigma">
-        ${formatCoins(opportunity.buyOffer)}
-        <button class="copy-button" data-action="copy-buy" data-id="${opportunity.id}" type="button">Copy</button>
+        ${renderTypeable(pair.buy, opportunity.buyOffer)}${pair.fellBack ? snapFallbackMarker() : ""}
       </td>
       <td class="price sell-price">
-        ${formatCoins(opportunity.sellOffer)}
-        <button class="copy-button" data-action="copy-sell" data-id="${opportunity.id}" type="button">Copy</button>
+        ${renderTypeable(pair.sell, opportunity.sellOffer)}
       </td>
-      <td>${formatCoins(opportunity.quantity)}</td>
+      <td class="qty-cell">${renderTypeableSide(opportunity.quantity, "qty")}</td>
       <td>${formatCoins(opportunity.profit)}</td>
       <td>${(opportunity.roi * 100).toFixed(2)}%</td>
       <td title="${opportunity.recentActivityRatio.toFixed(1)}x normal recent activity; ${(opportunity.buyPressure * 100).toFixed(0)}% buy pressure">${formatCoins(opportunity.hourlyRoundTrips, true)}</td>
@@ -415,15 +529,16 @@ function planGuidance(slot) {
     const belowReview =
       currentMid > 0 && currentMid < Math.max(slot.reviewPrice, currentReview);
 
+    const sellPair = snapTradePair(averageCost, target);
     return {
       status,
-      title: `SELL ${formatCoins(quantity)} at ${formatCoins(target)}`,
+      title: `SELL ${formatTypeable(quantity, "qty")} at ${sellPair.sell.toLocaleString("en-US")}`,
       detail: belowReview
         ? `Price is below the review band. Current model exit ${formatCoins(currentModelExit)}; break-even ${formatCoins(breakEven)}. Reassess rather than chasing the old margin.`
         : weakened
           ? `Current model exit is below break-even ${formatCoins(breakEven)}. Keep the frozen target visible, but consider time-to-recovery and slot cost.`
           : `Frozen target ${formatCoins(slot.sellOffer)}; current model ${formatCoins(currentModelExit)}; break-even ${formatCoins(breakEven)}.`,
-      copyPrice: target,
+      fellBack: sellPair.fellBack,
     };
   }
 
@@ -432,21 +547,22 @@ function planGuidance(slot) {
       status,
       title: "Slot complete",
       detail: "Remove or replace this plan when you are ready.",
-      copyPrice: null,
+      fellBack: false,
     };
   }
 
   const currentMid =
     current?.currentMid || modelGuidance?.currentMid || slot.currentMid;
   const distance = currentMid > 0 ? currentMid / slot.buyOffer - 1 : 0;
+  const buyPair = snapTradePair(slot.buyOffer, slot.sellOffer);
   return {
     status,
-    title: `BUY ${formatCoins(slot.quantity)} at ${formatCoins(slot.buyOffer)}`,
+    title: `BUY ${formatTypeable(slot.quantity, "qty")} at ${buyPair.buy.toLocaleString("en-US")}`,
     detail:
       distance <= 0.01
         ? `Entry is inside the planned lower band. Frozen exit target: ${formatCoins(slot.sellOffer)}.`
         : `Current midpoint is ${(distance * 100).toFixed(1)}% above entry. Leave a patient offer or wait; do not chase it upward.`,
-    copyPrice: slot.buyOffer,
+    fellBack: buyPair.fellBack,
   };
 }
 
@@ -469,6 +585,7 @@ function renderPlan() {
       const modelGuidance = state.guidance.get(slot.id);
       const currentExit =
         current?.sellOffer || modelGuidance?.sellTarget || slot.sellOffer;
+      const slotPair = snapTradePair(slot.buyOffer, slot.sellOffer);
 
       return `
         <article class="slot-card">
@@ -488,13 +605,13 @@ function renderPlan() {
             </select>
           </header>
           <div class="slot-command">
-            <strong>${guidance.title}</strong>
+            <strong>${guidance.title}${guidance.fellBack || slotPair.fellBack ? snapFallbackMarker() : ""}</strong>
             <span>${guidance.detail}</span>
           </div>
           <div class="slot-prices">
-            <div><span>Entry</span><strong>${formatCoins(slot.buyOffer)}</strong></div>
-            <div><span>Frozen exit</span><strong>${formatCoins(slot.sellOffer)}</strong></div>
-            <div><span>Current exit</span><strong>${formatCoins(currentExit)}</strong></div>
+            <div><span>Entry</span><strong>${renderTypeable(slotPair.buy, slot.buyOffer)}</strong></div>
+            <div><span>Frozen exit</span><strong>${renderTypeable(slotPair.sell, slot.sellOffer)}</strong></div>
+            <div><span>Current exit</span><strong>${renderTypeableSide(currentExit, "sell")}</strong></div>
           </div>
           <p class="slot-band">
             Fair ${formatCoins(slot.fairValue)} - Q1 ${formatCoins(slot.q1)} -
@@ -504,13 +621,8 @@ function renderPlan() {
             ${slot.bidAsk ? `<br/><span class="slot-asymmetry" title="bid sigma ${slot.bidAsk.bidSigma.toFixed(3)}, ask sigma ${slot.bidAsk.askSigma.toFixed(3)}, asymmetric data weight ${Math.round(slot.bidAsk.asymmetryWeight * 100)}% (${slot.bidAsk.asymmetricSamples} samples)">Bid ${formatCoins(slot.bidAsk.bidFair)} / Ask ${formatCoins(slot.bidAsk.askFair)} - realized spread ${formatCoins(slot.bidAsk.realizedSpread)}</span>` : ""}
           </p>
           <div class="slot-footer">
-            <span>${formatCoins(slot.quantity)} units - ${formatCoins(slot.expectedWeeklyProfit, true)}/wk model</span>
+            <span>${formatTypeable(slot.quantity, "qty")} units - ${formatCoins(slot.expectedWeeklyProfit, true)}/wk model</span>
             <div>
-              ${
-                guidance.copyPrice
-                  ? `<button data-plan-copy="${guidance.copyPrice}" type="button">Copy price</button>`
-                  : ""
-              }
               ${
                 current || modelGuidance?.distribution.available
                   ? `<button data-plan-refresh="${index}" type="button">Adopt current</button>`
@@ -870,6 +982,19 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
+if (elements.roundFriendlyToggle) {
+  elements.roundFriendlyToggle.checked = state.roundFriendly;
+  elements.roundFriendlyToggle.addEventListener("change", () => {
+    state.roundFriendly = elements.roundFriendlyToggle.checked;
+    localStorage.setItem(
+      "osrs-flip-round-friendly",
+      state.roundFriendly ? "1" : "0",
+    );
+    renderTable();
+    renderPlan();
+  });
+}
+
 elements.rows.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action]");
   if (!button) {
@@ -890,21 +1015,6 @@ elements.rows.addEventListener("click", (event) => {
 
   const opportunity = findOpportunity(id);
   if (!opportunity) {
-    return;
-  }
-
-  if (button.dataset.action === "copy-buy" || button.dataset.action === "copy-sell") {
-    const value =
-      button.dataset.action === "copy-buy"
-        ? opportunity.buyOffer
-        : opportunity.sellOffer;
-    navigator.clipboard.writeText(String(value)).then(() => {
-      const original = button.textContent;
-      button.textContent = "Copied";
-      setTimeout(() => {
-        button.textContent = original;
-      }, 900);
-    });
     return;
   }
 
@@ -932,18 +1042,6 @@ elements.slotPlan.addEventListener("change", (event) => {
 });
 
 elements.slotPlan.addEventListener("click", (event) => {
-  const copyPrice = event.target.dataset.planCopy;
-  if (copyPrice) {
-    navigator.clipboard.writeText(copyPrice).then(() => {
-      const original = event.target.textContent;
-      event.target.textContent = "Copied";
-      setTimeout(() => {
-        event.target.textContent = original;
-      }, 900);
-    });
-    return;
-  }
-
   const removeIndex = Number(event.target.dataset.planRemove);
   if (Number.isInteger(removeIndex) && state.plan[removeIndex]) {
     state.plan[removeIndex] = null;
