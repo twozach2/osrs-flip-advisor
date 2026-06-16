@@ -560,6 +560,26 @@ tbody tr:hover {
   font-weight: 800;
 }
 
+.bid-ask-detail {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgb(143 182 203 / 12%);
+  color: var(--blue);
+  font-size: 0.62rem;
+  font-weight: 700;
+  cursor: help;
+}
+
+.slot-asymmetry {
+  display: inline-block;
+  margin-top: 4px;
+  color: var(--blue);
+  font-size: 0.7rem;
+  cursor: help;
+}
+
 .trend-badge.down {
   background: rgb(220 131 116 / 13%);
   color: var(--red);

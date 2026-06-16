@@ -161,6 +161,43 @@ function formatHours(value) {
   return `${value.toFixed(1)}h`;
 }
 
+function bidAskSnapshot(distribution) {
+  if (!distribution || !distribution.available) {
+    return null;
+  }
+  const bidFair = Number(distribution.bidFair) || 0;
+  const askFair = Number(distribution.askFair) || 0;
+  if (bidFair <= 0 || askFair <= 0) {
+    return null;
+  }
+  return {
+    bidFair,
+    askFair,
+    bidSigma: Number(distribution.bidSigma) || 0,
+    askSigma: Number(distribution.askSigma) || 0,
+    realizedSpread: Number(distribution.realizedSpread) || 0,
+    asymmetricSamples: Number(distribution.asymmetricSamples) || 0,
+    asymmetryWeight: Number(distribution.asymmetryWeight) || 0,
+  };
+}
+
+function bidAskDetail(distribution) {
+  const snap = bidAskSnapshot(distribution);
+  if (!snap) {
+    return "";
+  }
+  const fairValue = Number(distribution.fairValue) || 0;
+  const realizedPct =
+    fairValue > 0 ? (snap.realizedSpread / fairValue) * 100 : 0;
+  const asymPct = Math.round(snap.asymmetryWeight * 100);
+  const tooltip =
+    `bid fair ${formatCoins(snap.bidFair)} (sigma ${snap.bidSigma.toFixed(3)}), ` +
+    `ask fair ${formatCoins(snap.askFair)} (sigma ${snap.askSigma.toFixed(3)}), ` +
+    `realized spread ${formatCoins(snap.realizedSpread)} (${realizedPct.toFixed(2)}%), ` +
+    `asymmetric data weight ${asymPct}% (${snap.asymmetricSamples} samples)`;
+  return `<span class="bid-ask-detail" title="${tooltip}">B/A ${formatCoins(snap.bidFair)}/${formatCoins(snap.askFair)}</span>`;
+}
+
 function trendBadge(opportunity) {
   const strength = Number(opportunity.trendStrength) || 0;
   if (strength <= 0) {
@@ -208,6 +245,7 @@ function rowHtml(opportunity) {
           <div>
             <strong>${escapeHtml(opportunity.name)}</strong>
             <span>${bandLabel} - ${formatCoins(opportunity.capitalRequired, true)} allocated${historyLabel}</span>
+            ${bidAskDetail(opportunity.distribution)}
             ${trendBadge(opportunity)}
           </div>
         </div>
@@ -323,6 +361,7 @@ function snapshotOpportunity(opportunity) {
     q3: opportunity.distribution.q3,
     p10: opportunity.distribution.p10,
     sigmaPercent: opportunity.distribution.sigmaPercent,
+    bidAsk: bidAskSnapshot(opportunity.distribution),
     effectiveExitSigma: opportunity.effectiveExitSigma,
     taxAdjustedExit: opportunity.taxAdjustedExit,
     riskScore: opportunity.risk.score,
@@ -462,6 +501,7 @@ function renderPlan() {
             Q3 ${formatCoins(slot.q3)} - volatility sigma ${(Number(slot.sigmaPercent || 0) * 100).toFixed(2)}% -
             exit ${Number(slot.effectiveExitSigma || 0).toFixed(2)} sigma${slot.taxAdjustedExit ? " tax-adjusted" : ""} -
             review below ${formatCoins(slot.reviewPrice)}
+            ${slot.bidAsk ? `<br/><span class="slot-asymmetry" title="bid sigma ${slot.bidAsk.bidSigma.toFixed(3)}, ask sigma ${slot.bidAsk.askSigma.toFixed(3)}, asymmetric data weight ${Math.round(slot.bidAsk.asymmetryWeight * 100)}% (${slot.bidAsk.asymmetricSamples} samples)">Bid ${formatCoins(slot.bidAsk.bidFair)} / Ask ${formatCoins(slot.bidAsk.askFair)} - realized spread ${formatCoins(slot.bidAsk.realizedSpread)}</span>` : ""}
           </p>
           <div class="slot-footer">
             <span>${formatCoins(slot.quantity)} units - ${formatCoins(slot.expectedWeeklyProfit, true)}/wk model</span>
@@ -940,6 +980,7 @@ elements.slotPlan.addEventListener("click", (event) => {
         q3: modelGuidance.distribution.q3,
         p10: modelGuidance.distribution.p10,
         sigmaPercent: modelGuidance.distribution.sigmaPercent,
+        bidAsk: bidAskSnapshot(modelGuidance.distribution),
         currentMid: modelGuidance.currentMid,
       };
       savePlan();

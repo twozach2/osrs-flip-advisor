@@ -393,6 +393,21 @@ test("a wider exit target lowers the modeled exit-fill probability", () => {
   assert.ok(wide.exitFillProbability < narrow.exitFillProbability);
 });
 
+test("fill probability uses Student-t tails, not Gaussian", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const opp = buildOpportunity(
+    evRecord(now, { low: 990, high: 1_010, lowTime: now, highTime: now }),
+    evSettings({ exitSigma: 2 }),
+    now,
+  );
+
+  assert.ok(opp);
+  assert.ok(opp.effectiveExitSigma >= 1.9);
+  // Student-t(df=5) two-tail survival at z=2 is ~0.102; Gaussian at z=2 is ~0.046.
+  // Asserting > 0.07 fails under a Gaussian model and passes under Student-t.
+  assert.ok(opp.exitFillProbability > 0.07);
+});
+
 test("rejects buying into a crash where the realistic exit is below entry", () => {
   const now = Math.floor(Date.now() / 1000);
   const healthy = buildOpportunity(
@@ -478,6 +493,31 @@ test("adaptive entry rejects an entry that cannot fill in time", () => {
   assert.equal(adaptive, null);
 });
 
+test("asymmetric history routes exit sigma through the ask side", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const history = Array.from({ length: 48 }, (_, index) => {
+    const low = 990 + (index % 3);
+    const high = 1_020 + Math.round(40 * Math.sin(index / 2));
+    const mid = Math.round((high + low) / 2);
+    const spread = (high - low) / mid;
+    return [now - (47 - index) * 3600, mid, spread, 1_000, high, low, 1];
+  });
+  const latest = { low: 990, high: 1_010, lowTime: now, highTime: now };
+  const opp = buildOpportunity(
+    flowRecord(now, latest, history, 5_000, 5_000),
+    evSettings({ adaptiveEntry: false, driftAware: false }),
+    now,
+  );
+
+  assert.ok(opp);
+  const d = opp.distribution;
+  assert.ok(d.askSigma > d.bidSigma);
+  const askExpected = Math.log(opp.sellOffer / d.askFair) / d.askSigma;
+  const midExpected = Math.log(opp.sellOffer / d.fairValue) / d.robustSigma;
+  assert.ok(Math.abs(opp.effectiveExitSigma - askExpected) < 1e-6);
+  assert.ok(Math.abs(opp.effectiveExitSigma - midExpected) > 1e-3);
+});
+
 test("drift-aware EV discounts a downtrend", () => {
   const now = Math.floor(Date.now() / 1000);
   const latest = { low: 680, high: 695, lowTime: now, highTime: now };
@@ -504,4 +544,31 @@ test("drift-aware EV discounts a downtrend", () => {
   assert.ok(driftOn.evPerUnit < driftOff.evPerUnit);
   assert.ok(driftOn.exitFillProbability < driftOff.exitFillProbability);
   assert.ok(driftOn.projectedFairExit <= driftOff.projectedFairExit);
+});
+
+test("drift-aware EV credits a sustained uptrend symmetrically", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const latest = { low: 1_980, high: 2_010, lowTime: now, highTime: now };
+  const history = Array.from({ length: 48 }, (_, index) => [
+    now - (47 - index) * 3600,
+    Math.round(1_000 * Math.pow(1.01, index)),
+    0.02,
+    1_000,
+  ]);
+  const driftOff = buildOpportunity(
+    flowRecord(now, latest, history, 5_000, 5_000),
+    evSettings({ driftAware: false }),
+    now,
+  );
+  const driftOn = buildOpportunity(
+    flowRecord(now, latest, history, 5_000, 5_000),
+    evSettings({ driftAware: true }),
+    now,
+  );
+
+  assert.ok(driftOff && driftOn);
+  assert.ok(driftOn.driftPerHour > 0);
+  assert.ok(driftOn.trendStrength > 0);
+  assert.ok(driftOn.projectedFairExit >= driftOff.projectedFairExit);
+  assert.ok(driftOn.exitFillProbability >= driftOff.exitFillProbability);
 });

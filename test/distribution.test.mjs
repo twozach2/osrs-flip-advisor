@@ -11,6 +11,16 @@ function hourlySamples(prices, now = 2_000_000) {
   ]);
 }
 
+function asymmetricSamples(now = 2_000_000, count = 48) {
+  return Array.from({ length: count }, (_, index) => {
+    const low = 1_000 + (index % 3);
+    const high = 1_050 + Math.round(60 * Math.sin(index / 2));
+    const mid = Math.round((high + low) / 2);
+    const spread = (high - low) / mid;
+    return [now - (count - index - 1) * 3600, mid, spread, 1_000, high, low, 1];
+  });
+}
+
 test("robust price bands resist a single extreme outlier", () => {
   const normal = Array.from({ length: 48 }, (_, index) => 1_000 + (index % 5) * 2);
   const baseline = analyzeDistribution(hourlySamples(normal), {
@@ -108,4 +118,41 @@ test("insufficient history is explicit", () => {
 
   assert.equal(result.available, false);
   assert.equal(result.sampleCount, 3);
+});
+
+test("asymmetric bid/ask volatility drives side-specific targets", () => {
+  const result = analyzeDistribution(asymmetricSamples(), {
+    nowSeconds: 2_000_000,
+    windowHours: 72,
+    minimumSamples: 24,
+    entrySigma: 0.75,
+    exitSigma: 0.75,
+  });
+
+  assert.equal(result.available, true);
+  assert.ok(result.askSigma > result.bidSigma);
+  assert.ok(result.buyTarget <= result.bidFair);
+  assert.ok(result.sellTarget >= result.askFair);
+  assert.ok(
+    result.sellTarget - result.askFair > result.bidFair - result.buyTarget,
+  );
+  assert.ok(result.realizedSpread > 0);
+  assert.equal(result.asymmetricSamples, 48);
+  assert.equal(result.asymmetryWeight, 1);
+});
+
+test("missing asymmetric flag collapses bid/ask sigma toward mid-series sigma", () => {
+  const result = analyzeDistribution(hourlySamples(
+    Array.from({ length: 48 }, (_, index) => 1_000 + (index % 5) * 2),
+  ), {
+    nowSeconds: 2_000_000,
+    windowHours: 72,
+    minimumSamples: 24,
+  });
+
+  assert.equal(result.available, true);
+  assert.equal(result.asymmetricSamples, 0);
+  assert.equal(result.asymmetryWeight, 0);
+  assert.equal(result.bidSigma, result.robustSigma);
+  assert.equal(result.askSigma, result.robustSigma);
 });
