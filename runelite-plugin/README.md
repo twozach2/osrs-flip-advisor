@@ -141,22 +141,7 @@ cd runelite-plugin
   minutes. Be patient — let it finish. (Later times are fast.)
 - When it's done, a normal **RuneLite game window opens by itself.**
 
-## 8. Turn the plugin on and paste your token (do this once)
-
-In the RuneLite window:
-
-1. Click the **wrench icon** 🔧 on the right-side toolbar (that's "Configuration").
-2. In the search box, type **Flip**. You'll see **"OSRS Flip Advisor Tracker"**.
-3. Click the little **on/off switch** next to it so it turns on.
-4. Click its **name** (or the gear next to it) to open its settings.
-5. You'll see two boxes:
-   - **Local endpoint** — leave it exactly as it is
-     (`http://127.0.0.1:4173/api/ge-events`). Don't change it.
-   - **Ingest token** — click in this box and **paste** (Ctrl+V) the token you
-     copied in step 6.
-6. That's it. RuneLite saves it automatically.
-
-## 9. Log in to the game
+## 8. Log in to the game
 
 Log in like you normally would.
 
@@ -165,6 +150,25 @@ Log in like you normally would.
   <https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts>
 - This part is the most fiddly. If you get stuck, it's okay to ask a grown-up or
   a techy friend for a hand here.
+
+## 9. Paste your token and turn the plugin on (do this once)
+
+**Important:** the plugin's on/off switch won't turn on until you're logged into
+the game, so make sure you finished step 8 first.
+
+In the RuneLite window:
+
+1. Click the **wrench icon** 🔧 on the right-side toolbar (that's "Configuration").
+2. In the search box, type **Flip**. You'll see **"OSRS Flip Advisor Tracker"**.
+3. Click its **name** (or the gear next to it) to open its settings.
+4. You'll see two boxes:
+   - **Local endpoint** — leave it exactly as it is
+     (`http://127.0.0.1:4173/api/ge-events`). Don't change it.
+   - **Ingest token** — click in this box and **paste** (Ctrl+V) the token you
+     copied in step 6.
+5. Now click the little **on/off switch** next to **"OSRS Flip Advisor Tracker"**
+   so it turns on. (This only works once you're logged in.)
+6. That's it. RuneLite saves it automatically.
 
 ## 10. Test that it's working
 
@@ -192,7 +196,7 @@ Once everything is installed and the token is pasted, your routine is just:
 | `java`/`node`/`git` "is not recognized" | The tool isn't installed or isn't on PATH | Re-run that installer (tick "Add to PATH" for Java), then close and reopen PowerShell |
 | `.\gradlew.bat run` fails the first time | A download got interrupted | Just run the same command again |
 | Dashboard won't load at localhost:4173 | The advisor (step 5) isn't running | Start `node server.mjs` and leave that window open |
-| Nothing shows in "Open orders" | Token typo, or wrong window | Re-copy the token (step 6) and re-paste it (step 8); make sure the advisor is running |
+| Nothing shows in "Open orders" | Token typo, or wrong window | Re-copy the token (step 6) and re-paste it (step 9); make sure the advisor is running |
 | "address already in use" / port 4173 busy | The advisor is already running somewhere | Close the old PowerShell window running it, then start again |
 
 ## Optional: make a single double-clickable launcher
