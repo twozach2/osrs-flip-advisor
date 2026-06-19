@@ -242,6 +242,101 @@ test("open offers upsert, preserve first-seen, reset on re-price, and clear on t
       timestamp: new Date().toISOString(),
     });
     assert.equal(reloaded.getSummary().openOrders.length, 0);
+
+    const samples = reloaded.getSummary().recentFillSamples;
+    assert.equal(samples.length, 1);
+    assert.equal(samples[0].itemId, 555);
+    assert.equal(samples[0].side, "buy");
+    assert.equal(samples[0].fullyFilled, true);
+    assert.equal(samples[0].cancelled, false);
+    // firstSeenAt was reset to repricedAt (1h ago) by the re-price, so the
+    // realized fill duration measured from there should be ~1 hour.
+    assert.ok(samples[0].realizedFillHours >= 0.9 && samples[0].realizedFillHours <= 1.2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fill samples reconcile realized duration against the predicted fill hours", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "osrs-fill-"));
+
+  try {
+    const path = join(directory, "trades.json");
+    const store = new TradeStore(path);
+    await store.init();
+
+    const hour = 60 * 60 * 1000;
+    const placedAt = new Date(Date.now() - 2 * hour).toISOString();
+
+    // A fully-filled sell whose model predicted a faster fill than realized.
+    await store.ingestOffer({
+      kind: "offer",
+      account: "test",
+      slot: 3,
+      itemId: 777,
+      state: "SELLING",
+      quantitySold: 0,
+      totalQuantity: 50,
+      offerPrice: 2_000,
+      predictedFillHours: 1.5,
+      timestamp: placedAt,
+    });
+    await store.ingestOffer({
+      kind: "offer",
+      account: "test",
+      slot: 3,
+      itemId: 777,
+      state: "SOLD",
+      quantitySold: 50,
+      totalQuantity: 50,
+      offerPrice: 2_000,
+      timestamp: new Date().toISOString(),
+    });
+
+    let samples = store.getSummary().recentFillSamples;
+    assert.equal(samples.length, 1);
+    assert.equal(samples[0].predictedFillHours, 1.5);
+    assert.equal(samples[0].fullyFilled, true);
+    assert.equal(samples[0].cancelled, false);
+    // Realized ~2h vs predicted 1.5h => positive error (model was optimistic).
+    assert.ok(samples[0].fillError > 0.3 && samples[0].fillError < 0.7);
+    assert.ok(
+      Math.abs(samples[0].fillError - (samples[0].realizedFillHours - 1.5)) < 1e-9,
+    );
+
+    // A cancelled buy still records a sample, flagged cancelled and not filled,
+    // while carrying the prediction supplied at placement.
+    await store.ingestOffer({
+      kind: "offer",
+      account: "test",
+      slot: 4,
+      itemId: 888,
+      state: "BUYING",
+      quantitySold: 0,
+      totalQuantity: 80,
+      offerPrice: 1_500,
+      predictedFillHours: 3,
+      timestamp: placedAt,
+    });
+    await store.ingestOffer({
+      kind: "offer",
+      account: "test",
+      slot: 4,
+      itemId: 888,
+      state: "CANCELLED_BUY",
+      quantitySold: 20,
+      totalQuantity: 80,
+      offerPrice: 1_500,
+      timestamp: new Date().toISOString(),
+    });
+
+    samples = store.getSummary().recentFillSamples;
+    const cancelledSample = samples.find((sample) => sample.itemId === 888);
+    assert.ok(cancelledSample);
+    assert.equal(cancelledSample.cancelled, true);
+    assert.equal(cancelledSample.fullyFilled, false);
+    assert.equal(cancelledSample.predictedFillHours, 3);
+    assert.equal(cancelledSample.filledQuantity, 20);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

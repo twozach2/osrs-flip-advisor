@@ -110,6 +110,37 @@ test("drift per hour is exposed with the correct sign", () => {
   assert.equal(flat.trendStrength, 0);
 });
 
+test("multi-window agreement credits a monotonic trend but discounts a reversal", () => {
+  const monotonic = Array.from({ length: 72 }, (_, index) =>
+    Math.round(1_000 * Math.pow(1.01, index)),
+  );
+  // V-shape: dips through the middle third, then recovers above the start, so
+  // the half-split drift is positive while the first tertile leg moves the
+  // opposite way. The short and long windows disagree on direction.
+  const reversal = Array.from({ length: 72 }, (_, index) =>
+    index < 24 ? 1_000 : index < 48 ? 920 : 1_120,
+  );
+
+  const trended = analyzeDistribution(hourlySamples(monotonic), {
+    nowSeconds: 2_000_000,
+    adaptiveHorizon: true,
+  });
+  const contradicted = analyzeDistribution(hourlySamples(reversal), {
+    nowSeconds: 2_000_000,
+    adaptiveHorizon: true,
+  });
+
+  // A trend confirmed across both windows is fully credited.
+  assert.equal(trended.trendAgreement, 1);
+  assert.ok(trended.trendStrength > 0);
+
+  // A contradicted trend still has a non-zero drift estimate, but the windows
+  // only half-agree, so the drift is not credited (trendStrength collapses).
+  assert.ok(contradicted.driftPerHour > 0);
+  assert.equal(contradicted.trendAgreement, 0.5);
+  assert.equal(contradicted.trendStrength, 0);
+});
+
 test("insufficient history is explicit", () => {
   const result = analyzeDistribution(hourlySamples([100, 101, 102]), {
     nowSeconds: 2_000_000,

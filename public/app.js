@@ -882,7 +882,7 @@ function findOpportunity(id) {
   return combined.find((item) => item.id === id);
 }
 
-function openOrderVerdict(order, maxHours) {
+function openOrderVerdict(order, maxHours, position = null) {
   const ageHours = (Date.now() - new Date(order.firstSeenAt).getTime()) / 3_600_000;
   const remaining = Math.max(0, order.totalQuantity - order.quantitySold);
   const name = escapeHtml(order.name);
@@ -914,26 +914,36 @@ function openOrderVerdict(order, maxHours) {
   const driftPct = (Math.exp(drift) - 1) * 100;
   const modelExit = Number(opportunity.sellOffer) || 0;
   const target = Math.round(Number(opportunity.projectedFairExit) || modelExit || order.offerPrice);
+  const averageCost = Number(position?.averageCost);
+  const breakEven = Number.isFinite(averageCost) ? calculateBreakEvenSell(averageCost) : null;
 
   if (order.side === "sell") {
-    if (order.offerPrice > target) {
+    // Never advise lowering the ask below break-even: the loss-avoidance floor is
+    // max(model exit, break-even) so the advice cannot silently lock in a loss.
+    const safeTarget = breakEven ? Math.max(target, breakEven) : target;
+    const belowBreakEven = breakEven !== null && target < breakEven;
+    if (order.offerPrice > safeTarget) {
       return {
         level: "reprice",
         ageHours,
-        title: `Lower ask on ${name} to ~${formatCoins(target)}`,
-        detail: `Sell stuck ${formatHours(ageHours)}; your ask ${formatCoins(order.offerPrice)} is above the drift-adjusted exit ${formatCoins(target)} (${driftPct.toFixed(1)}%/h). Lower it to free capital.`,
+        title: `Lower ask on ${name} to ~${formatCoins(safeTarget)}`,
+        detail: belowBreakEven
+          ? `Sell stuck ${formatHours(ageHours)}; the drift-adjusted exit ${formatCoins(target)} is below break-even ${formatCoins(breakEven)}. Hold the line at break-even rather than locking a loss, even though it may fill slower.`
+          : `Sell stuck ${formatHours(ageHours)}; your ask ${formatCoins(order.offerPrice)} is above the drift-adjusted exit ${formatCoins(target)} (${driftPct.toFixed(1)}%/h). Lower it to free capital.`,
       };
     }
     return {
       level: "hold",
       ageHours,
       title: `Hold ${name}`,
-      detail: `Sell stuck ${formatHours(ageHours)}, but your ask ${formatCoins(order.offerPrice)} is at/below the model exit ${formatCoins(target)}. Holding is reasonable.`,
+      detail: breakEven
+        ? `Sell stuck ${formatHours(ageHours)}, but your ask ${formatCoins(order.offerPrice)} is at/below the loss-avoidance target ${formatCoins(safeTarget)} (break-even ${formatCoins(breakEven)}). Holding is reasonable.`
+        : `Sell stuck ${formatHours(ageHours)}, but your ask ${formatCoins(order.offerPrice)} is at/below the model exit ${formatCoins(target)}. Holding is reasonable.`,
     };
   }
 
   const fastFillPrice = Math.max(Math.round(Number(opportunity.currentMid) || 0), order.offerPrice + 1);
-  const exitNet = target * 0.98;
+  const exitNet = target - clientTax(target);
   const marginAtFastFill = Math.round(exitNet - fastFillPrice);
 
   if (drift < -0.002 || marginAtFastFill <= 0) {
@@ -965,9 +975,13 @@ function renderOpenOrders(tracking) {
     return;
   }
 
+  const positions = tracking.positions || [];
   elements.openOrders.innerHTML = orders
     .map((order) => {
-      const verdict = openOrderVerdict(order, maxHours);
+      const position = positions.find(
+        (candidate) => candidate.itemId === order.itemId,
+      );
+      const verdict = openOrderVerdict(order, maxHours, position);
       return `
         <article class="compact-entry open-order ${verdict.level}">
           <div>

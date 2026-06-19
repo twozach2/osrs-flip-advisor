@@ -350,6 +350,7 @@ async function serveTracking(response) {
       recentRealized: summary.recentRealized.map(addName),
       positions,
       openOrders: summary.openOrders.map(addName),
+      recentFillSamples: summary.recentFillSamples.map(addName),
     }),
   );
 }

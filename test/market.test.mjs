@@ -403,9 +403,10 @@ test("fill probability uses Student-t tails, not Gaussian", () => {
 
   assert.ok(opp);
   assert.ok(opp.effectiveExitSigma >= 1.9);
-  // Student-t(df=5) two-tail survival at z=2 is ~0.102; Gaussian at z=2 is ~0.046.
-  // Asserting > 0.07 fails under a Gaussian model and passes under Student-t.
-  assert.ok(opp.exitFillProbability > 0.07);
+  // One-sided Student-t(df=5) survival at this exit distance is ~0.036, while a
+  // Gaussian one-tail survival would be ~0.022 or less. Asserting > 0.03 passes
+  // under the fatter Student-t tail and fails under a Gaussian model.
+  assert.ok(opp.exitFillProbability > 0.03);
 });
 
 test("rejects buying into a crash where the realistic exit is below entry", () => {
@@ -459,12 +460,12 @@ test("adaptive entry tightens the buy offer to meet the fill-time target", () =>
   const history = oscillatingHistory(now);
   const legacy = buildOpportunity(
     flowRecord(now, latest, history, 500, 1_000),
-    evSettings({ adaptiveEntry: false }),
+    evSettings({ adaptiveEntry: false, participationRate: 0.15 }),
     now,
   );
   const adaptive = buildOpportunity(
     flowRecord(now, latest, history, 500, 1_000),
-    evSettings({ adaptiveEntry: true, maxEntryFillHours: 6 }),
+    evSettings({ adaptiveEntry: true, maxEntryFillHours: 6, participationRate: 0.15 }),
     now,
   );
 
@@ -480,12 +481,12 @@ test("adaptive entry rejects an entry that cannot fill in time", () => {
   const history = oscillatingHistory(now);
   const legacy = buildOpportunity(
     flowRecord(now, latest, history, 300, 1_000),
-    evSettings({ adaptiveEntry: false }),
+    evSettings({ adaptiveEntry: false, participationRate: 0.25 }),
     now,
   );
   const adaptive = buildOpportunity(
     flowRecord(now, latest, history, 300, 1_000),
-    evSettings({ adaptiveEntry: true, maxEntryFillHours: 6 }),
+    evSettings({ adaptiveEntry: true, maxEntryFillHours: 2, participationRate: 0.25 }),
     now,
   );
 
