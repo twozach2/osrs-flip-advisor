@@ -116,6 +116,7 @@ h2 {
 .control-panel,
 .market-panel,
 .plan-panel,
+.recovery-panel,
 .journal-panel {
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -125,6 +126,7 @@ h2 {
 
 .control-panel,
 .plan-panel,
+.recovery-panel,
 .journal-panel {
   padding: 26px;
 }
@@ -295,6 +297,10 @@ select:focus {
   margin-bottom: 16px;
 }
 
+.recovery-panel {
+  margin-bottom: 16px;
+}
+
 .plan-actions {
   display: flex;
   gap: 8px;
@@ -439,6 +445,134 @@ select:focus {
 
 .slot-footer button:hover {
   color: var(--text);
+}
+
+.recovery-form {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.5fr) minmax(160px, 0.8fr) minmax(120px, 0.5fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 18px;
+}
+
+.recovery-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.recovery-results {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.recovery-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #111613;
+}
+
+.recovery-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recovery-card h3 {
+  margin: 5px 0 2px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.12rem;
+  font-weight: 500;
+}
+
+.recovery-card header span:last-child {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.recovery-command {
+  margin: 14px 0;
+  padding: 12px 13px;
+  border-left: 3px solid var(--green);
+  border-radius: 4px;
+  background: rgb(121 201 151 / 8%);
+}
+
+.recovery-command strong,
+.recovery-command span {
+  display: block;
+}
+
+.recovery-command strong {
+  color: var(--green);
+  font-size: 1.18rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.recovery-command span {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.recovery-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.recovery-metrics div {
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0d110f;
+}
+
+.recovery-metrics span,
+.recovery-metrics strong {
+  display: block;
+}
+
+.recovery-metrics span {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.recovery-metrics strong {
+  font-size: 0.98rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.recovery-profit-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.recovery-profit-row span {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.recovery-warning {
+  margin: 12px 0 0;
+  color: #f0aaa0;
+  font-size: 0.74rem;
 }
 
 .summary-card {

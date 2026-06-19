@@ -22,7 +22,7 @@
       </div>
       <div class="live-state" aria-live="polite">
         <span class="live-dot"></span>
-        <span><span id="liveLabel">Connecting...</span> · Planner 0.4</span>
+        <span><span id="liveLabel">Connecting...</span> · Planner 0.7</span>
       </div>
     </header>
 
@@ -222,6 +222,45 @@
         <div id="slotPlan" class="slot-grid"></div>
       </section>
 
+      <section class="recovery-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Recovery search</p>
+            <h2>Find an item you already bought</h2>
+          </div>
+        </div>
+        <p class="field-note">
+          Search any item by name or item id, even when it is not in the eight-slot
+          planner. Add your buy price to calculate break-even, quick-exit loss, and a
+          conservative relist target.
+        </p>
+        <form id="recoveryForm" class="recovery-form">
+          <label>
+            Item name or id
+            <input
+              name="query"
+              type="search"
+              placeholder="Example: abyssal whip"
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            Your buy price
+            <input name="buyPrice" inputmode="numeric" placeholder="Optional, e.g. 1.8m" />
+          </label>
+          <label>
+            Quantity
+            <input name="quantity" type="number" min="1" step="1" placeholder="Optional" />
+          </label>
+          <button class="primary-button" id="recoverySearchButton" type="submit">
+            Search item
+          </button>
+        </form>
+        <div id="recoveryResults" class="recovery-results">
+          <p class="empty-state">Search for an item to get current recovery guidance.</p>
+        </div>
+      </section>
+
       <section class="market-panel">
         <div class="market-toolbar">
           <div>
@@ -341,6 +380,6 @@
       </p>
     </footer>
 
-    <script type="module" src="/app.js?v=0.6"></script>
+    <script type="module" src="/app.js?v=0.7"></script>
   </body>
 </html>

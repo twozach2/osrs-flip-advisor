@@ -185,6 +185,53 @@ function numberParameter(searchParams, name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function guidanceSettingsFromParams(searchParams) {
+  return {
+    distributionWindowHours: numberParameter(
+      searchParams,
+      "distributionWindowHours",
+      72,
+    ),
+    distributionHalfLifeHours: numberParameter(
+      searchParams,
+      "distributionHalfLifeHours",
+      24,
+    ),
+    entrySigma: numberParameter(searchParams, "entrySigma", 0.75),
+    exitSigma: numberParameter(searchParams, "exitSigma", 0.75),
+    maxExitSigma: numberParameter(searchParams, "maxExitSigma", 3),
+    minimumDistributionSamples: numberParameter(
+      searchParams,
+      "minimumDistributionSamples",
+      24,
+    ),
+  };
+}
+
+function searchScore(record, query, numericId) {
+  if (numericId && record.item.id === numericId) {
+    return 1000;
+  }
+
+  const name = String(record.item.name || "").toLowerCase();
+  if (name === query) {
+    return 900;
+  }
+  if (name.startsWith(query)) {
+    return 700 - name.length / 100;
+  }
+  if (name.includes(query)) {
+    return 500 - name.indexOf(query) - name.length / 100;
+  }
+
+  const tokens = query.split(/\s+/).filter(Boolean);
+  if (tokens.length && tokens.every((token) => name.includes(token))) {
+    return 300 - name.length / 100;
+  }
+
+  return 0;
+}
+
 async function serveOpportunities(requestUrl, response) {
   const records = await loadMarketRecords();
   const settings = {
@@ -362,26 +409,7 @@ async function serveGuidance(requestUrl, response) {
       .slice(0, 8),
   );
   const records = await loadMarketRecords();
-  const settings = {
-    distributionWindowHours: numberParameter(
-      requestUrl.searchParams,
-      "distributionWindowHours",
-      72,
-    ),
-    distributionHalfLifeHours: numberParameter(
-      requestUrl.searchParams,
-      "distributionHalfLifeHours",
-      24,
-    ),
-    entrySigma: numberParameter(requestUrl.searchParams, "entrySigma", 0.75),
-    exitSigma: numberParameter(requestUrl.searchParams, "exitSigma", 0.75),
-    maxExitSigma: numberParameter(requestUrl.searchParams, "maxExitSigma", 3),
-    minimumDistributionSamples: numberParameter(
-      requestUrl.searchParams,
-      "minimumDistributionSamples",
-      24,
-    ),
-  };
+  const settings = guidanceSettingsFromParams(requestUrl.searchParams);
   const guidance = records
     .filter((record) => ids.has(record.item.id))
     .map((record) => buildDistributionGuidance(record, settings))
@@ -392,6 +420,47 @@ async function serveGuidance(requestUrl, response) {
     "Cache-Control": "no-store",
   });
   response.end(JSON.stringify({ generatedAt: new Date().toISOString(), guidance }));
+}
+
+async function serveItemSearch(requestUrl, response) {
+  const rawQuery = String(requestUrl.searchParams.get("q") || "").trim();
+  const query = rawQuery.toLowerCase();
+  const numericId = /^\d+$/.test(rawQuery) ? Number(rawQuery) : null;
+
+  if (!numericId && query.length < 2) {
+    response.writeHead(400, { "Content-Type": contentTypes[".json"] });
+    response.end(JSON.stringify({ error: "Enter at least two letters or an item id." }));
+    return;
+  }
+
+  const records = await loadMarketRecords();
+  const settings = guidanceSettingsFromParams(requestUrl.searchParams);
+  const matches = records
+    .map((record) => ({ record, score: searchScore(record, query, numericId) }))
+    .filter((entry) => entry.score > 0)
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        String(left.record.item.name).localeCompare(String(right.record.item.name)),
+    )
+    .slice(0, 10)
+    .map(({ record, score }) => ({
+      score,
+      guidance: buildDistributionGuidance(record, settings),
+    }))
+    .filter((entry) => entry.guidance);
+
+  response.writeHead(200, {
+    "Content-Type": contentTypes[".json"],
+    "Cache-Control": "no-store",
+  });
+  response.end(
+    JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      query: rawQuery,
+      matches,
+    }),
+  );
 }
 
 async function serveStatic(pathname, response) {
@@ -449,6 +518,11 @@ const server = createServer(async (request, response) => {
 
     if (requestUrl.pathname === "/api/guidance" && request.method === "GET") {
       await serveGuidance(requestUrl, response);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/item-search" && request.method === "GET") {
+      await serveItemSearch(requestUrl, response);
       return;
     }
 

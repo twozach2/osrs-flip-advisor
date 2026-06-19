@@ -9,6 +9,8 @@ const state = {
   tracking: null,
   timer: null,
   roundFriendly: localStorage.getItem("osrs-flip-round-friendly") === "1",
+  recoveryMatches: [],
+  recoveryContext: { buyPrice: null, quantity: 1 },
 };
 
 const elements = {
@@ -35,6 +37,9 @@ const elements = {
   buildPlanButton: document.querySelector("#buildPlanButton"),
   clearPlanButton: document.querySelector("#clearPlanButton"),
   roundFriendlyToggle: document.querySelector("#roundFriendlyToggle"),
+  recoveryForm: document.querySelector("#recoveryForm"),
+  recoverySearchButton: document.querySelector("#recoverySearchButton"),
+  recoveryResults: document.querySelector("#recoveryResults"),
 };
 
 function loadPlan() {
@@ -62,6 +67,15 @@ function parseCoins(value) {
 
   const multipliers = { k: 1_000, m: 1_000_000, b: 1_000_000_000 };
   return Number(match[1]) * (multipliers[match[2]] || 1);
+}
+
+function parseOptionalCoins(value) {
+  if (String(value || "").trim() === "") {
+    return null;
+  }
+
+  const parsed = parseCoins(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : Number.NaN;
 }
 
 function formatCoins(value, compact = false) {
@@ -243,6 +257,18 @@ function getSettings() {
     maxRiskScore: Number(formData.get("maxRiskScore")),
     maxLossPercent: Number(formData.get("maxLossPercent")) / 100,
     maxPositionPercent: Number(formData.get("maxPositionPercent")) / 100,
+  };
+}
+
+function getDistributionSettings() {
+  const formData = new FormData(elements.form);
+  return {
+    distributionWindowHours: Number(formData.get("distributionWindowHours")),
+    distributionHalfLifeHours: Number(formData.get("distributionHalfLifeHours")),
+    minimumDistributionSamples: Number(formData.get("minimumDistributionSamples")),
+    entrySigma: Number(formData.get("entrySigma")),
+    exitSigma: Number(formData.get("exitSigma")),
+    maxExitSigma: Number(formData.get("maxExitSigma")),
   };
 }
 
@@ -503,6 +529,172 @@ function calculateBreakEvenSell(unitCost) {
   return low;
 }
 
+function recoveryTarget(guidance, buyPrice = null) {
+  const modelSell = Number(guidance.sellTarget) || 0;
+  const latestHigh = Number(guidance.latestHigh) || 0;
+  const breakEven = buyPrice ? calculateBreakEvenSell(buyPrice) : null;
+  const target = Math.max(modelSell, latestHigh, breakEven || 0);
+
+  return {
+    target: target || null,
+    modelSell: modelSell || null,
+    latestHigh: latestHigh || null,
+    breakEven,
+    taxAdjusted: Boolean(breakEven && breakEven > modelSell),
+  };
+}
+
+function recoverySnapshot(match) {
+  const guidance = match.guidance;
+  const distribution = guidance.distribution || {};
+  const buyPrice =
+    state.recoveryContext.buyPrice ||
+    guidance.buyTarget ||
+    guidance.currentMid ||
+    guidance.latestLow ||
+    1;
+  const target = recoveryTarget(guidance, buyPrice);
+  const confidence = Number(distribution.confidence) || 0;
+
+  return {
+    id: guidance.id,
+    name: guidance.name,
+    buyOffer: Math.round(buyPrice),
+    sellOffer: Math.round(target.target || guidance.sellTarget || buyPrice),
+    quantity: state.recoveryContext.quantity || 1,
+    reviewPrice: guidance.reviewPrice || distribution.p10 || Math.round(buyPrice * 0.95),
+    expectedWeeklyProfit: 0,
+    fairValue: distribution.fairValue || guidance.currentMid || buyPrice,
+    q1: distribution.q1 || guidance.currentMid || buyPrice,
+    q3: distribution.q3 || guidance.currentMid || buyPrice,
+    p10: distribution.p10 || guidance.currentMid || buyPrice,
+    sigmaPercent: distribution.sigmaPercent || 0,
+    bidAsk: bidAskSnapshot(distribution),
+    effectiveExitSigma: distribution.exitSigma || 0,
+    taxAdjustedExit: target.taxAdjusted,
+    riskScore: distribution.available ? Math.round((1 - confidence) * 60) : 75,
+    modelSource: "manual-recovery",
+    currentMid: guidance.currentMid || buyPrice,
+    status: state.recoveryContext.buyPrice ? "Holding" : "Planned",
+    pinnedAt: new Date().toISOString(),
+  };
+}
+
+function pinSlotSnapshot(snapshot) {
+  const existingIndex = state.plan.findIndex((slot) => slot?.id === snapshot.id);
+  const emptyIndex = state.plan.findIndex((slot) => !slot);
+  const index = existingIndex >= 0 ? existingIndex : emptyIndex;
+
+  if (index < 0) {
+    throw new Error("All eight slots are pinned. Remove or complete one first.");
+  }
+
+  state.plan[index] = snapshot;
+  savePlan();
+  renderPlan();
+  renderSummary();
+  loadPlanGuidance();
+}
+
+function recoveryCardHtml(match, index) {
+  const guidance = match.guidance;
+  const distribution = guidance.distribution || {};
+  const buyPrice = state.recoveryContext.buyPrice;
+  const quantity = state.recoveryContext.quantity || 1;
+  const latestLow = Number(guidance.latestLow) || 0;
+  const latestHigh = Number(guidance.latestHigh) || 0;
+  const currentMid = Number(guidance.currentMid) || 0;
+  const target = recoveryTarget(guidance, buyPrice);
+  const targetPrice = target.target || latestHigh || currentMid;
+  const targetPair = buyPrice
+    ? snapTradePair(buyPrice, targetPrice)
+    : { sell: snapValue(targetPrice, "sell"), fellBack: false };
+  const quickExitNet = latestLow > 0 ? latestLow - clientTax(latestLow) : null;
+  const quickExitProfit =
+    buyPrice && quickExitNet !== null ? (quickExitNet - buyPrice) * quantity : null;
+  const targetProfit =
+    buyPrice && targetPrice > 0
+      ? (targetPrice - clientTax(targetPrice) - buyPrice) * quantity
+      : null;
+  const modelProfit =
+    buyPrice && target.modelSell
+      ? (target.modelSell - clientTax(target.modelSell) - buyPrice) * quantity
+      : null;
+  const confidence = Math.round((Number(distribution.confidence) || 0) * 100);
+  const historyLabel = distribution.available
+    ? `${distribution.sampleCount} samples, ${confidence}% model confidence`
+    : `${distribution.sampleCount || 0} samples; limited model history`;
+  const targetLabel = buyPrice
+    ? `Relist target ${formatTypeable(targetPrice, "sell")}`
+    : `Model sell target ${formatTypeable(targetPrice, "sell")}`;
+  const warning =
+    buyPrice && quickExitProfit !== null && quickExitProfit < 0
+      ? `<p class="recovery-warning">Quick exit would realize ${formatCoins(quickExitProfit, true)} total after tax. The relist target prioritizes avoiding that loss, but may take longer to fill.</p>`
+      : "";
+
+  return `
+    <article class="recovery-card">
+      <header>
+        <div>
+          <span class="slot-number">Manual search</span>
+          <h3>${escapeHtml(guidance.name)}</h3>
+          <span>${historyLabel}</span>
+        </div>
+        <button class="queue-button" data-recovery-pin="${index}" type="button">
+          Pin recovery
+        </button>
+      </header>
+      <div class="recovery-command">
+        <strong>${targetLabel}${targetPair.fellBack ? snapFallbackMarker() : ""}</strong>
+        <span>
+          ${
+            buyPrice
+              ? `Bought at ${formatCoins(buyPrice)}; break-even ${formatCoins(target.breakEven)}.`
+              : "Add your buy price above to calculate break-even and loss avoidance."
+          }
+        </span>
+      </div>
+      <div class="recovery-metrics">
+        <div><span>Current low</span><strong>${formatCoins(latestLow)}</strong></div>
+        <div><span>Current high</span><strong>${formatCoins(latestHigh)}</strong></div>
+        <div><span>Fair value</span><strong>${formatCoins(distribution.fairValue || currentMid)}</strong></div>
+        <div><span>Review below</span><strong>${formatCoins(guidance.reviewPrice)}</strong></div>
+      </div>
+      <p class="slot-band">
+        Model exit ${formatCoins(target.modelSell)} - Q1 ${formatCoins(distribution.q1)} -
+        Q3 ${formatCoins(distribution.q3)} - drift ${((Number(distribution.driftPerHour) || 0) * 100).toFixed(2)}%/h
+        ${bidAskDetail(distribution)}
+      </p>
+      ${
+        buyPrice
+          ? `<div class="recovery-profit-row">
+              <span class="${quickExitProfit < 0 ? "loss-text" : "gain-text"}">Quick exit: ${formatCoins(quickExitProfit, true)}</span>
+              <span class="${targetProfit < 0 ? "loss-text" : "gain-text"}">At relist target: ${formatCoins(targetProfit, true)}</span>
+              <span>At model exit: ${formatCoins(modelProfit, true)}</span>
+            </div>`
+          : ""
+      }
+      ${warning}
+    </article>
+  `;
+}
+
+function renderRecoveryResults() {
+  if (!elements.recoveryResults) {
+    return;
+  }
+
+  if (!state.recoveryMatches.length) {
+    elements.recoveryResults.innerHTML =
+      `<p class="empty-state">No matching live item found. Try a shorter name or the item id.</p>`;
+    return;
+  }
+
+  elements.recoveryResults.innerHTML = state.recoveryMatches
+    .map(recoveryCardHtml)
+    .join("");
+}
+
 function planGuidance(slot) {
   const current = findOpportunity(slot.id);
   const modelGuidance = state.guidance.get(slot.id);
@@ -638,19 +830,7 @@ function renderPlan() {
 }
 
 function pinOpportunity(opportunity) {
-  const existingIndex = state.plan.findIndex((slot) => slot?.id === opportunity.id);
-  const emptyIndex = state.plan.findIndex((slot) => !slot);
-  const index = existingIndex >= 0 ? existingIndex : emptyIndex;
-
-  if (index < 0) {
-    throw new Error("All eight slots are pinned. Remove or complete one first.");
-  }
-
-  state.plan[index] = snapshotOpportunity(opportunity);
-  savePlan();
-  renderPlan();
-  renderSummary();
-  loadPlanGuidance();
+  pinSlotSnapshot(snapshotOpportunity(opportunity));
 }
 
 function buildPlan() {
@@ -885,7 +1065,7 @@ async function loadPlanGuidance() {
   }
 
   try {
-    const settings = getSettings();
+    const settings = getDistributionSettings();
     const query = new URLSearchParams({
       ids: ids.join(","),
       distributionWindowHours: String(settings.distributionWindowHours),
@@ -904,6 +1084,65 @@ async function loadPlanGuidance() {
     renderPlan();
   } catch (error) {
     console.warn(error.message);
+  }
+}
+
+async function loadRecoverySearch(event) {
+  event?.preventDefault();
+  if (!elements.recoveryForm || !elements.recoveryResults) {
+    return;
+  }
+
+  const formData = new FormData(elements.recoveryForm);
+  const queryText = String(formData.get("query") || "").trim();
+  const buyPrice = parseOptionalCoins(formData.get("buyPrice"));
+  const rawQuantity = String(formData.get("quantity") || "").trim();
+  const quantity = rawQuantity ? Math.floor(Number(rawQuantity)) : 1;
+
+  if (!queryText) {
+    elements.recoveryResults.innerHTML =
+      `<p class="empty-state">Enter an item name or item id.</p>`;
+    return;
+  }
+  if (Number.isNaN(buyPrice)) {
+    elements.recoveryResults.innerHTML =
+      `<p class="empty-state">Enter a valid buy price, such as 1.8m, or leave it blank.</p>`;
+    return;
+  }
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    elements.recoveryResults.innerHTML =
+      `<p class="empty-state">Quantity must be a whole number above zero.</p>`;
+    return;
+  }
+
+  state.recoveryContext = { buyPrice, quantity };
+  elements.recoverySearchButton.disabled = true;
+  elements.recoveryResults.innerHTML =
+    `<p class="empty-state">Searching current market guidance...</p>`;
+
+  try {
+    const settings = getDistributionSettings();
+    const params = new URLSearchParams({
+      q: queryText,
+      distributionWindowHours: String(settings.distributionWindowHours),
+      distributionHalfLifeHours: String(settings.distributionHalfLifeHours),
+      minimumDistributionSamples: String(settings.minimumDistributionSamples),
+      entrySigma: String(settings.entrySigma),
+      exitSigma: String(settings.exitSigma),
+      maxExitSigma: String(settings.maxExitSigma),
+    });
+    const response = await fetch(`/api/item-search?${params}`, { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.error || "Recovery search failed.");
+    }
+    state.recoveryMatches = body.matches || [];
+    renderRecoveryResults();
+  } catch (error) {
+    elements.recoveryResults.innerHTML =
+      `<p class="empty-state">${escapeHtml(error.message)}</p>`;
+  } finally {
+    elements.recoverySearchButton.disabled = false;
   }
 }
 
@@ -958,6 +1197,32 @@ elements.clearPlanButton.addEventListener("click", () => {
   renderPlan();
   renderSummary();
 });
+
+if (elements.recoveryForm) {
+  elements.recoveryForm.addEventListener("submit", loadRecoverySearch);
+}
+
+if (elements.recoveryResults) {
+  elements.recoveryResults.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-recovery-pin]");
+    if (!button) {
+      return;
+    }
+
+    const index = Number(button.dataset.recoveryPin);
+    const match = state.recoveryMatches[index];
+    if (!match) {
+      return;
+    }
+
+    try {
+      pinSlotSnapshot(recoverySnapshot(match));
+    } catch (error) {
+      elements.errorBanner.textContent = error.message;
+      elements.errorBanner.hidden = false;
+    }
+  });
+}
 
 document.querySelectorAll("[data-copy-target]").forEach((button) => {
   button.addEventListener("click", () => {
