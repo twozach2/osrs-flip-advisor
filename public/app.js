@@ -835,15 +835,24 @@ function pinOpportunity(opportunity) {
 
 function buildPlan() {
   if (!state.data) {
+    elements.errorBanner.textContent =
+      "Market data is still loading. Wait until the top-right status says Updated, then try Fill empty slots again.";
+    elements.errorBanner.hidden = false;
     return;
   }
 
   const desiredSlots = Math.min(8, state.data.settings.slots);
   const pinnedIds = new Set(state.plan.filter(Boolean).map((slot) => slot.id));
-  const candidates = (state.data.plan || state.data.balanced).filter(
+  let candidates = (state.data.plan || []).filter(
     (opportunity) =>
       opportunity.modelSource === "distribution" && !pinnedIds.has(opportunity.id),
   );
+  const usedLiveFallback = !candidates.length && state.data.settings.requireDistribution === false;
+  if (usedLiveFallback) {
+    candidates = (state.data.balanced || []).filter(
+      (opportunity) => !pinnedIds.has(opportunity.id),
+    );
+  }
 
   for (let index = 0; index < desiredSlots; index += 1) {
     if (state.plan[index]) {
@@ -863,10 +872,25 @@ function buildPlan() {
 
   const filled = state.plan.slice(0, desiredSlots).filter(Boolean).length;
   if (filled < desiredSlots) {
+    const totalSamples = state.data.historyStatus?.totalSamples || 0;
+    const firstRunHint =
+      totalSamples < 500
+        ? ` This looks like a fresh install with only ${formatCoins(totalSamples, true)} history samples. Leave the server running for the initial history backfill, then refresh.`
+        : "";
+    const fallbackHint =
+      state.data.settings.requireDistribution === false
+        ? " Live-spread fallback was allowed, but too few markets passed the current return/risk filters."
+        : " To allow temporary live-spread fallbacks while history builds, uncheck Historical targets only.";
     elements.errorBanner.textContent =
-      `Filled ${filled} of ${desiredSlots} slots. The remaining slots do not yet have enough historical data or do not pass the current return and risk rules.`;
+      `Filled ${filled} of ${desiredSlots} slots. The remaining slots do not yet have enough historical data or do not pass the current return and risk rules.${firstRunHint}${fallbackHint}`;
     elements.errorBanner.hidden = false;
   } else {
+    if (usedLiveFallback) {
+      elements.errorBanner.textContent =
+        "Filled slots with live-spread fallback candidates because distribution history is still building.";
+      elements.errorBanner.hidden = false;
+      return;
+    }
     elements.errorBanner.hidden = true;
   }
 }
@@ -1163,6 +1187,7 @@ async function loadRecoverySearch(event) {
 async function loadData() {
   clearTimeout(state.timer);
   elements.refreshButton.disabled = true;
+  elements.buildPlanButton.disabled = true;
   elements.liveLabel.textContent = "Refreshing...";
   elements.errorBanner.hidden = true;
 
@@ -1183,6 +1208,7 @@ async function loadData() {
     renderSummary();
     renderPlan();
     await loadPlanGuidance();
+    elements.buildPlanButton.disabled = false;
     const timestamp = new Date(body.generatedAt);
     elements.liveLabel.textContent = `Updated ${timestamp.toLocaleTimeString([], {
       hour: "numeric",
@@ -1195,6 +1221,7 @@ async function loadData() {
     elements.liveLabel.textContent = "Update failed";
   } finally {
     elements.refreshButton.disabled = false;
+    elements.buildPlanButton.disabled = !state.data;
     state.timer = setTimeout(loadData, 5 * 60_000);
   }
 }

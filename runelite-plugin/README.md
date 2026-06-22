@@ -112,6 +112,12 @@ node server.mjs
 - Open your web browser and go to: <http://localhost:4173>
   You should see the OSRS Flip Advisor dashboard. That means the helper is
   running. 🎉
+- On a brand-new install, the dashboard may open before it has enough market
+  history to fill the eight GE slots. Wait until the top-right status says
+  **Updated** and the **History samples** card starts increasing. If **Fill empty
+  slots** says it cannot find enough historical markets, leave the server running
+  for a while and refresh. You can also temporarily uncheck **Historical targets
+  only** if you want live-spread fallback ideas while the local history builds.
 
 ## 6. Get your secret token (do this once)
 

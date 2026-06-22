@@ -53,6 +53,13 @@ come from the advisor's rolling historical model. Suggested prices remain
 estimates, and patient distribution targets may take substantially longer to
 fill than current-spread offers.
 
+Fresh installs start without `data/market-history.jsonl`. The dashboard can open
+before the planner has enough local history to fill the eight GE slots. Leave
+the server running until the top-right status says it has updated and the
+History samples card is no longer near zero. If Fill empty slots still cannot
+find enough distribution-qualified markets, either wait for more samples or
+temporarily uncheck Historical targets only to allow live-spread fallback ideas.
+
 The default model uses a 72-hour window, a 24-hour recency half-life, and entry
 and exit targets 0.75 robust sigma below and above weighted fair value. Robust
 sigma is estimated from MAD and IQR in log-price space, making it much less
