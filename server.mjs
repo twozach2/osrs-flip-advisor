@@ -274,6 +274,11 @@ async function serveOpportunities(requestUrl, response) {
       "maxPositionPercent",
       0.125,
     ),
+    highValuePriceFloor: numberParameter(
+      requestUrl.searchParams,
+      "highValuePriceFloor",
+      1_000_000,
+    ),
   };
   const ranked = rankOpportunities(records, settings);
 

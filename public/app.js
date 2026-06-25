@@ -226,12 +226,16 @@ function getSettings() {
   const formData = new FormData(elements.form);
   const capital = parseCoins(formData.get("capital"));
   const minProfit = parseCoins(formData.get("minProfit"));
+  const highValuePriceFloor = parseCoins(formData.get("highValuePriceFloor"));
 
   if (!Number.isFinite(capital) || capital <= 0) {
     throw new Error("Enter a valid cash stack, such as 500m or 1.2b.");
   }
   if (!Number.isFinite(minProfit) || minProfit < 0) {
     throw new Error("Enter a valid minimum profit.");
+  }
+  if (!Number.isFinite(highValuePriceFloor) || highValuePriceFloor < 0) {
+    throw new Error("Enter a valid high-value floor, such as 1m.");
   }
 
   return {
@@ -257,6 +261,7 @@ function getSettings() {
     maxRiskScore: Number(formData.get("maxRiskScore")),
     maxLossPercent: Number(formData.get("maxLossPercent")) / 100,
     maxPositionPercent: Number(formData.get("maxPositionPercent")) / 100,
+    highValuePriceFloor,
   };
 }
 
@@ -434,6 +439,7 @@ function visibleOpportunities() {
       ...state.data.balanced,
       ...state.data.highVolume,
       ...state.data.highMargin,
+      ...(state.data.highValue || []),
       ...state.data.lowRisk,
     ];
     const unique = new Map(combined.map((item) => [item.id, item]));
@@ -445,9 +451,13 @@ function visibleOpportunities() {
 
 function renderTable() {
   const opportunities = visibleOpportunities();
+  const emptyMessage =
+    state.activeStrategy === "highValue" && state.data
+      ? `No items at or above ${formatCoins(state.data.settings.highValuePriceFloor)} currently pass the high-value history, risk, and exit-probability checks.`
+      : "No markets match these settings.";
   elements.rows.innerHTML = opportunities.length
     ? opportunities.slice(0, 40).map(rowHtml).join("")
-    : `<tr><td colspan="13" class="empty-state">No markets match these settings.</td></tr>`;
+    : `<tr><td colspan="13" class="empty-state">${emptyMessage}</td></tr>`;
 }
 
 function renderSummary() {
@@ -471,7 +481,13 @@ function renderSummary() {
   elements.targetGap.textContent =
     gap > 0 ? `${formatCoins(gap, true)} below target` : "Model clears the target";
   elements.marketCount.textContent = formatCoins(
-    new Set([...state.data.highVolume, ...state.data.highMargin].map((item) => item.id))
+    new Set(
+      [
+        ...state.data.highVolume,
+        ...state.data.highMargin,
+        ...(state.data.highValue || []),
+      ].map((item) => item.id),
+    )
       .size,
   );
   elements.historySamples.textContent = formatCoins(
@@ -833,6 +849,78 @@ function pinOpportunity(opportunity) {
   pinSlotSnapshot(snapshotOpportunity(opportunity));
 }
 
+function mixHighValueCandidates(primaryCandidates, highValueCandidates, desiredSlots) {
+  const highValueIds = new Set(highValueCandidates.map((item) => item.id));
+  const maxHighValueSlots = Math.min(
+    2,
+    Math.max(1, Math.floor(desiredSlots / 4)),
+  );
+  const seen = new Set();
+  const result = [];
+  let highValueUsed = 0;
+  let highValueIndex = 0;
+
+  const pushCandidate = (candidate) => {
+    if (!candidate || seen.has(candidate.id)) {
+      return false;
+    }
+
+    const isHighValue = highValueIds.has(candidate.id);
+    if (isHighValue && highValueUsed >= maxHighValueSlots) {
+      return false;
+    }
+
+    seen.add(candidate.id);
+    result.push(candidate);
+    if (isHighValue) {
+      highValueUsed += 1;
+    }
+    return true;
+  };
+
+  const pushNextHighValue = () => {
+    while (highValueIndex < highValueCandidates.length) {
+      const candidate = highValueCandidates[highValueIndex];
+      highValueIndex += 1;
+      if (pushCandidate(candidate)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (const candidate of primaryCandidates) {
+    if (
+      result.length > 0 &&
+      result.length % 3 === 0 &&
+      highValueUsed < maxHighValueSlots
+    ) {
+      pushNextHighValue();
+    }
+    pushCandidate(candidate);
+  }
+
+  while (highValueUsed < maxHighValueSlots && result.length < desiredSlots) {
+    if (!pushNextHighValue()) {
+      break;
+    }
+  }
+
+  return result;
+}
+
+function automaticHighValueCandidates(candidates, settings) {
+  const minimumExpectedCycleProfit = Math.max(
+    5_000,
+    Number(settings.minProfit || 0) * 2,
+  );
+  return candidates.filter(
+    (opportunity) =>
+      Number(opportunity.expectedCycleProfit) >= minimumExpectedCycleProfit &&
+      Number(opportunity.confidence) >= 50,
+  );
+}
+
 function buildPlan() {
   if (!state.data) {
     elements.errorBanner.textContent =
@@ -843,9 +931,18 @@ function buildPlan() {
 
   const desiredSlots = Math.min(8, state.data.settings.slots);
   const pinnedIds = new Set(state.plan.filter(Boolean).map((slot) => slot.id));
-  let candidates = (state.data.plan || []).filter(
+  const distributionCandidates = (state.data.plan || []).filter(
     (opportunity) =>
       opportunity.modelSource === "distribution" && !pinnedIds.has(opportunity.id),
+  );
+  const highValueCandidates = (state.data.highValue || []).filter(
+    (opportunity) =>
+      opportunity.modelSource === "distribution" && !pinnedIds.has(opportunity.id),
+  );
+  let candidates = mixHighValueCandidates(
+    distributionCandidates,
+    automaticHighValueCandidates(highValueCandidates, state.data.settings),
+    desiredSlots,
   );
   const usedLiveFallback = !candidates.length && state.data.settings.requireDistribution === false;
   if (usedLiveFallback) {
@@ -900,6 +997,7 @@ function findOpportunity(id) {
     ...(state.data?.balanced || []),
     ...(state.data?.highVolume || []),
     ...(state.data?.highMargin || []),
+    ...(state.data?.highValue || []),
     ...(state.data?.lowRisk || []),
     ...(state.data?.plan || []),
   ];

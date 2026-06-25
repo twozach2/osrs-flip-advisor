@@ -28,7 +28,8 @@ use the bundled Node runtime.
   trend, liquidity, spread, and history confidence.
 - Reduces position size to respect a configurable modeled-loss budget and risk
   ceiling.
-- Ranks balanced, high-volume, and high-margin opportunities separately.
+- Ranks balanced, high-volume, high-margin, high-value, and low-risk
+  opportunities separately.
 - Maintains a persistent eight-slot execution plan in the browser. Pinned entry,
   exit, review, quantity, and distribution values remain visible even when the
   item later drops out of the opportunity board.
@@ -64,6 +65,14 @@ The default model uses a 72-hour window, a 24-hour recency half-life, and entry
 and exit targets 0.75 robust sigma below and above weighted fair value. Robust
 sigma is estimated from MAD and IQR in log-price space, making it much less
 sensitive to one-off spikes than ordinary mean and standard deviation.
+
+High-value recommendations default to items with entry targets at or above
+1,000,000 gp. That lane relaxes the normal one-hour round-trip and history-sample
+filters and allows slower fills, but it still requires historical targets,
+positive expected value, risk-budget sizing, and a viable exit probability. Fill
+empty slots may blend in one or two high-value ideas only when their expected
+cycle profit is meaningful, so weak expensive positions can appear for review
+without crowding out the normal plan.
 
 The tax model applies 2% to every recommendation. Some exempt items may
 therefore show slightly understated profit.

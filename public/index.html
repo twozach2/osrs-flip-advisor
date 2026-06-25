@@ -75,6 +75,10 @@
             <input name="minHourlyVolume" type="number" value="25" min="0" />
           </label>
           <label>
+            High-value floor
+            <input name="highValuePriceFloor" value="1m" inputmode="numeric" />
+          </label>
+          <label>
             Max trade age
             <span class="input-with-unit">
               <input name="maxAgeMinutes" type="number" value="15" min="1" max="240" />
@@ -276,6 +280,9 @@
             </button>
             <button class="tab" data-strategy="highMargin" role="tab" type="button">
               High margin
+            </button>
+            <button class="tab" data-strategy="highValue" role="tab" type="button">
+              High value
             </button>
             <button class="tab" data-strategy="lowRisk" role="tab" type="button">
               Low risk

@@ -123,6 +123,60 @@ test("ranks liquid opportunities and respects per-slot capital", () => {
   assert.ok(ranked.highVolume[0].capitalRequired <= 800_000);
 });
 
+test("surfaces million-gp items in the high-value lane with lower liquidity", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const expensive = {
+    item: { id: 42, name: "Big ticket", limit: 8, members: true },
+    latest: {
+      low: 1_240_000,
+      high: 1_360_000,
+      lowTime: now,
+      highTime: now,
+    },
+    fiveMinute: {
+      avgHighPrice: 1_360_000,
+      avgLowPrice: 1_240_000,
+      highPriceVolume: 1,
+      lowPriceVolume: 1,
+    },
+    oneHour: {
+      avgHighPrice: 1_360_000,
+      avgLowPrice: 1_240_000,
+      highPriceVolume: 2,
+      lowPriceVolume: 2,
+    },
+    history: Array.from({ length: 12 }, (_, index) => [
+      now - (11 - index) * 3600,
+      1_220_000 + (index % 5) * 45_000,
+      0.04,
+      2,
+    ]),
+  };
+
+  const ranked = rankOpportunities([expensive], {
+    capital: 100_000_000,
+    slots: 8,
+    reservePercent: 20,
+    minProfit: 100,
+    minRoi: 0.0025,
+    minHourlyVolume: 25,
+    maxAgeMinutes: 15,
+    maxSpreadRatio: 0.25,
+    requireDistribution: true,
+    entrySigma: 0.75,
+    exitSigma: 0.75,
+    maxExitSigma: 6,
+    maxRiskScore: 100,
+    maxLossPercent: 0.1,
+    maxPositionPercent: 1,
+    highValuePriceFloor: 1_000_000,
+  });
+
+  assert.equal(ranked.balanced.length, 0);
+  assert.equal(ranked.highValue.length, 1);
+  assert.ok(ranked.highValue[0].buyOffer >= 1_000_000);
+});
+
 test("accepts zero-value optional filters", () => {
   const now = Math.floor(Date.now() / 1000);
   const records = [
