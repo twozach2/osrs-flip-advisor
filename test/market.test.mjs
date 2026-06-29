@@ -361,6 +361,44 @@ test("portfolio planning widens exits enough to clear tax within its sigma cap",
   assert.equal(ranked.plan.length, 8);
   assert.ok(ranked.plan.every((item) => item.profit >= 100));
   assert.ok(ranked.plan.every((item) => item.effectiveExitSigma <= 3));
+  assert.ok(ranked.plan.every((item) => item.cyclePattern));
+  assert.ok(ranked.plan.every((item) => item.patternMultiplier > 0));
+});
+
+test("planner diagnostics distinguish missing per-item history", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const ranked = rankOpportunities(
+    [
+      {
+        item: { id: 99, name: "No recent history", limit: 1_000, members: true },
+        latest: { low: 1_000, high: 1_200, lowTime: now, highTime: now },
+        fiveMinute: {
+          avgHighPrice: 1_200,
+          avgLowPrice: 1_000,
+          highPriceVolume: 100,
+          lowPriceVolume: 100,
+        },
+        oneHour: {
+          avgHighPrice: 1_200,
+          avgLowPrice: 1_000,
+          highPriceVolume: 1_000,
+          lowPriceVolume: 1_000,
+        },
+        history: [],
+      },
+    ],
+    {
+      capital: 100_000_000,
+      slots: 8,
+      requireDistribution: true,
+      maxRiskScore: 100,
+      maxLossPercent: 1,
+    },
+  );
+
+  assert.equal(ranked.plannerDiagnostics.totalMarkets, 1);
+  assert.equal(ranked.plannerDiagnostics.qualifiedMarkets, 0);
+  assert.equal(ranked.plannerDiagnostics.rejected.history, 1);
 });
 
 function evSettings(overrides = {}) {

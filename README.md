@@ -60,11 +60,29 @@ the server running until the top-right status says it has updated and the
 History samples card is no longer near zero. If Fill empty slots still cannot
 find enough distribution-qualified markets, either wait for more samples or
 temporarily uncheck Historical targets only to allow live-spread fallback ideas.
+The server also backfills likely candidates from the Wiki hourly series. Backfill
+eligibility is based on samples inside the selected model window, not the larger
+14-day file total. When slots remain empty, the dashboard reports how many
+markets lacked per-item history and the leading safety or return filters that
+rejected the rest.
 
 The default model uses a 72-hour window, a 24-hour recency half-life, and entry
 and exit targets 0.75 robust sigma below and above weighted fair value. Robust
 sigma is estimated from MAD and IQR in log-price space, making it much less
 sensitive to one-off spikes than ordinary mean and standard deviation.
+
+The advisor also runs a walk-forward cycle analysis on qualified markets. Raw
+history is compressed into hourly evaluation bars. At each historical point,
+the entry, exit, and review levels are calculated using only samples that were
+already available at that time. The model then measures exit success within
+6/12/24/48 hours, whether downside occurred before exit, median exit time,
+expired cycles, average post-tax value, and recent range shifts. Results with
+only a few completed cycles receive very little ranking weight. An hourly bar
+that touches both downside and exit is counted as downside-first because the
+event order is unknown. These are historical target touches, not proof that a
+specific queued GE offer would have filled. A pattern that crossed the downside
+band before exit in more than 75% of its cycles cannot receive a ranking boost,
+even when it eventually recovered.
 
 High-value recommendations default to items with entry targets at or above
 1,000,000 gp. That lane relaxes the normal one-hour round-trip and history-sample
@@ -82,6 +100,17 @@ reassess or exit a position, not an automatic stop order. New items detected
 after the first catalog snapshot receive an additional risk penalty. Items with
 limited local history are also sized more conservatively while the database
 builds.
+
+## Machine-learning backburner
+
+Machine learning remains a future option, but it should be evaluated only after
+the trade tracker has produced a substantial labeled set of real entries,
+partial fills, exits, cancellations, and realized holding times. Any candidate
+model must use decision-time features only, beat the walk-forward statistical
+baseline on later unseen periods after tax, remain calibrated during market
+regime changes, and expose a conservative fallback when confidence is low. Until
+those requirements can be tested, the auditable cycle model remains the ranking
+baseline.
 
 The Old School RuneScape client does not accept paste into the Grand Exchange
 price or quantity prompts, so every recommended value has to be typed by hand.

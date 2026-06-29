@@ -705,7 +705,8 @@ tbody tr:hover {
   font-size: 0.67rem;
 }
 
-.item-cell .trend-badge {
+.item-cell .trend-badge,
+.item-cell .cycle-badge {
   display: inline-block;
   margin-top: 4px;
   padding: 1px 7px;
@@ -742,6 +743,46 @@ tbody tr:hover {
 .trend-badge.up {
   background: rgb(121 201 151 / 13%);
   color: var(--green);
+}
+
+.cycle-badge.repeatable,
+.slot-cycle-pattern.repeatable {
+  color: var(--green);
+}
+
+.cycle-badge.repeatable {
+  background: rgb(121 201 151 / 13%);
+}
+
+.cycle-badge.mixed,
+.cycle-badge.insufficient,
+.slot-cycle-pattern.mixed,
+.slot-cycle-pattern.insufficient {
+  color: var(--gold);
+}
+
+.cycle-badge.mixed,
+.cycle-badge.insufficient {
+  background: rgb(220 183 104 / 13%);
+}
+
+.cycle-badge.weak,
+.cycle-badge.shifting,
+.slot-cycle-pattern.weak,
+.slot-cycle-pattern.shifting {
+  color: var(--red);
+}
+
+.cycle-badge.weak,
+.cycle-badge.shifting {
+  background: rgb(220 131 116 / 13%);
+}
+
+.slot-cycle-pattern {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  cursor: help;
 }
 
 .watch-button {

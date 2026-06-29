@@ -360,6 +360,60 @@ function trendBadge(opportunity) {
   return `<span class="trend-badge ${direction}" title="${title}">${label}</span>`;
 }
 
+function cyclePatternTitle(pattern) {
+  if (!pattern) {
+    return "No walk-forward cycle analysis available";
+  }
+  const completed = Number(pattern.completedCycles) || 0;
+  if (!completed) {
+    return "No fully observable historical entry cycles yet";
+  }
+
+  const success = Math.round((Number(pattern.successRate) || 0) * 100);
+  const downside = Math.round((Number(pattern.downsideFirstRate) || 0) * 100);
+  const expired = Math.round((Number(pattern.expiredRate) || 0) * 100);
+  const horizonRates = Object.entries(pattern.successByHorizon || {})
+    .map(
+      ([hours, rate]) =>
+        `${hours}h ${Math.round((Number(rate) || 0) * 100)}%`,
+    )
+    .join(", ");
+  const exitTime = Number.isFinite(pattern.medianExitHours)
+    ? `${pattern.medianExitHours.toFixed(1)}h median exit`
+    : "no successful exit time";
+  const regime = pattern.regimeShift
+    ? `; regime shift ${((Number(pattern.fairShiftPercent) || 0) * 100).toFixed(1)}%`
+    : "";
+  return `Walk-forward: ${completed} completed cycles, ${success}% reached exit within 48h, ${downside}% touched downside before exit, ${expired}% never reached exit; ${exitTime}; ${horizonRates}; average ${formatCoins(pattern.averageProfitPerUnit, true)}/unit${regime}`;
+}
+
+function cyclePatternBadge(opportunity) {
+  const pattern = opportunity.cyclePattern;
+  if (!pattern) {
+    return "";
+  }
+  const completed = Number(pattern.completedCycles) || 0;
+  const title = cyclePatternTitle(pattern);
+  const label =
+    completed >= 3
+      ? `Cycles ${Math.round((Number(pattern.successRate) || 0) * 100)}% / ${formatHours(pattern.medianExitHours)}`
+      : `Cycles ${completed} - building`;
+  return `<span class="cycle-badge ${pattern.status}" title="${title}">${label}</span>`;
+}
+
+function slotCyclePattern(pattern) {
+  if (!pattern) {
+    return "";
+  }
+  const completed = Number(pattern.completedCycles) || 0;
+  const summary =
+    completed >= 3
+      ? `${completed} walk-forward cycles - ${Math.round((Number(pattern.successRate) || 0) * 100)}% reached exit - median ${formatHours(pattern.medianExitHours)} - downside before exit ${Math.round((Number(pattern.downsideFirstRate) || 0) * 100)}%`
+      : `${completed} completed walk-forward cycles; pattern evidence is still building`;
+  const warning = pattern.regimeShift ? " - recent range shift detected" : "";
+  return `<br/><span class="slot-cycle-pattern ${pattern.status}" title="${cyclePatternTitle(pattern)}">${summary}${warning}</span>`;
+}
+
 function rowHtml(opportunity) {
   const watched = state.watchlist.has(opportunity.id);
   const age =
@@ -394,6 +448,7 @@ function rowHtml(opportunity) {
             <span>${bandLabel} - ${formatCoins(opportunity.capitalRequired, true)} allocated${historyLabel}</span>
             ${bidAskDetail(opportunity.distribution)}
             ${trendBadge(opportunity)}
+            ${cyclePatternBadge(opportunity)}
           </div>
         </div>
       </td>
@@ -523,6 +578,7 @@ function snapshotOpportunity(opportunity) {
     riskScore: opportunity.risk.score,
     modelSource: opportunity.modelSource,
     currentMid: opportunity.currentMid,
+    cyclePattern: opportunity.cyclePattern || null,
     status: "Buying",
     pinnedAt: new Date().toISOString(),
   };
@@ -827,6 +883,7 @@ function renderPlan() {
             exit ${Number(slot.effectiveExitSigma || 0).toFixed(2)} sigma${slot.taxAdjustedExit ? " tax-adjusted" : ""} -
             review below ${formatCoins(slot.reviewPrice)}
             ${slot.bidAsk ? `<br/><span class="slot-asymmetry" title="bid sigma ${slot.bidAsk.bidSigma.toFixed(3)}, ask sigma ${slot.bidAsk.askSigma.toFixed(3)}, asymmetric data weight ${Math.round(slot.bidAsk.asymmetryWeight * 100)}% (${slot.bidAsk.asymmetricSamples} samples)">Bid ${formatCoins(slot.bidAsk.bidFair)} / Ask ${formatCoins(slot.bidAsk.askFair)} - realized spread ${formatCoins(slot.bidAsk.realizedSpread)}</span>` : ""}
+            ${slotCyclePattern(slot.cyclePattern)}
           </p>
           <div class="slot-footer">
             <span>${formatTypeable(slot.quantity, "qty")} units - ${formatCoins(slot.expectedWeeklyProfit, true)}/wk model</span>
@@ -921,6 +978,63 @@ function automaticHighValueCandidates(candidates, settings) {
   );
 }
 
+const plannerRejectionLabels = {
+  exitTarget: "tax-adjusted exit target",
+  budget: "position budget",
+  risk: "risk score",
+  riskBudget: "loss budget",
+  entryFill: "entry fill time",
+  stale: "stale market data",
+  profit: "minimum profit",
+  roi: "minimum ROI",
+  liquidity: "liquidity",
+  spread: "spread width",
+  negativeEv: "non-positive expected value",
+};
+
+function plannerShortageDetails(diagnostics, totalSamples) {
+  if (!diagnostics) {
+    return " The remaining markets did not pass the current history, return, and risk rules.";
+  }
+
+  const rejected = diagnostics.rejected || {};
+  const historyRejected = Number(rejected.history) || 0;
+  const otherReasons = Object.entries(rejected)
+    .filter(([reason, count]) => reason !== "history" && Number(count) > 0)
+    .sort((left, right) => Number(right[1]) - Number(left[1]));
+  const otherRejected = otherReasons.reduce(
+    (sum, [, count]) => sum + Number(count),
+    0,
+  );
+  const details = [];
+
+  if (historyRejected > 0) {
+    details.push(
+      `${formatCoins(historyRejected)} markets lack ${formatCoins(diagnostics.minimumSamples)} usable samples inside the current ${formatCoins(diagnostics.historyWindowHours)}-hour window`,
+    );
+  }
+  if (otherRejected > 0) {
+    const leadingReasons = otherReasons
+      .slice(0, 3)
+      .map(
+        ([reason, count]) =>
+          `${plannerRejectionLabels[reason] || reason} ${formatCoins(count)}`,
+      )
+      .join(", ");
+    details.push(
+      `${formatCoins(otherRejected)} markets failed other safety/return checks (${leadingReasons})`,
+    );
+  }
+
+  const aggregateHint =
+    historyRejected > 0 && totalSamples >= diagnostics.minimumSamples
+      ? ` Your ${formatCoins(totalSamples, true)} total samples span many items and up to 14 days; history qualification is calculated per item inside the selected window.`
+      : "";
+  return details.length
+    ? ` Planner checked ${formatCoins(diagnostics.totalMarkets)} markets: ${details.join("; ")}.${aggregateHint}`
+    : " The planner found no additional distinct candidates for the empty slots.";
+}
+
 function buildPlan() {
   if (!state.data) {
     elements.errorBanner.textContent =
@@ -978,8 +1092,12 @@ function buildPlan() {
       state.data.settings.requireDistribution === false
         ? " Live-spread fallback was allowed, but too few markets passed the current return/risk filters."
         : " To allow temporary live-spread fallbacks while history builds, uncheck Historical targets only.";
+    const shortageDetails = plannerShortageDetails(
+      state.data.plannerDiagnostics,
+      totalSamples,
+    );
     elements.errorBanner.textContent =
-      `Filled ${filled} of ${desiredSlots} slots. The remaining slots do not yet have enough historical data or do not pass the current return and risk rules.${firstRunHint}${fallbackHint}`;
+      `Filled ${filled} of ${desiredSlots} slots.${shortageDetails}${firstRunHint}${fallbackHint}`;
     elements.errorBanner.hidden = false;
   } else {
     if (usedLiveFallback) {

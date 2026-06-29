@@ -31,6 +31,9 @@ const contentTypes = {
 const cache = new Map();
 const backfillAttempts = new Map();
 let lastBackfillBatchAt = 0;
+const DEFAULT_HISTORY_WINDOW_HOURS = 72;
+const DEFAULT_MINIMUM_DISTRIBUTION_SAMPLES = 24;
+const MAX_BACKFILL_ITEMS = 48;
 const historyStore = new HistoryStore(
   join(DATA_ROOT, "market-history.jsonl"),
   join(DATA_ROOT, "item-catalog.json"),
@@ -81,7 +84,7 @@ function objectEntries(data) {
   return Object.entries(data || {});
 }
 
-async function loadMarketRecords() {
+async function loadMarketRecords(historyRequirements = {}) {
   const [mapping, latest, fiveMinute, oneHour] = await Promise.all([
     fetchJson("mapping", 6 * 60 * 60 * 1000),
     fetchJson("latest", 15 * 1000),
@@ -111,7 +114,7 @@ async function loadMarketRecords() {
   });
 
   await historyStore.record(records);
-  await backfillLiquidHistory(records);
+  await backfillLiquidHistory(records, historyRequirements);
   return records.map((record) => ({
     ...record,
     history: historyStore.getSamples(record.item.id),
@@ -119,23 +122,40 @@ async function loadMarketRecords() {
   }));
 }
 
-async function backfillLiquidHistory(records) {
+async function backfillLiquidHistory(records, historyRequirements = {}) {
   const now = Date.now();
   if (now - lastBackfillBatchAt < 6 * 60 * 60 * 1000) {
     return;
   }
   lastBackfillBatchAt = now;
 
+  const windowHours = Math.max(
+    6,
+    Number(historyRequirements.distributionWindowHours) ||
+      DEFAULT_HISTORY_WINDOW_HOURS,
+  );
+  const minimumSamples = Math.max(
+    8,
+    Math.floor(
+      Number(historyRequirements.minimumDistributionSamples) ||
+        DEFAULT_MINIMUM_DISTRIBUTION_SAMPLES,
+    ),
+  );
+  const nowSeconds = Math.floor(now / 1000);
   const candidates = [...records]
     .filter(
       (record) =>
         Number(record.latest?.high) > 0 &&
         Number(record.latest?.low) > 0 &&
-        historyStore.getSamples(record.item.id).length < 24 &&
+        historyStore.getRecentSampleCount(
+          record.item.id,
+          windowHours,
+          nowSeconds,
+        ) < minimumSamples &&
         now - (backfillAttempts.get(record.item.id) || 0) > 6 * 60 * 60 * 1000,
     )
     .sort((left, right) => historyCandidateScore(right) - historyCandidateScore(left))
-    .slice(0, 24);
+    .slice(0, MAX_BACKFILL_ITEMS);
 
   for (let index = 0; index < candidates.length; index += 4) {
     const batch = candidates.slice(index, index + 4);
@@ -233,7 +253,6 @@ function searchScore(record, query, numericId) {
 }
 
 async function serveOpportunities(requestUrl, response) {
-  const records = await loadMarketRecords();
   const settings = {
     capital: numberParameter(requestUrl.searchParams, "capital", 100_000_000),
     slots: numberParameter(requestUrl.searchParams, "slots", 8),
@@ -280,6 +299,7 @@ async function serveOpportunities(requestUrl, response) {
       1_000_000,
     ),
   };
+  const records = await loadMarketRecords(settings);
   const ranked = rankOpportunities(records, settings);
 
   response.writeHead(200, {

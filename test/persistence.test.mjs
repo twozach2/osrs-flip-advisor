@@ -119,6 +119,40 @@ test("legacy length-4 lines reconstruct bid/ask symmetrically while new lines pe
   }
 });
 
+test("recent sample counts use the model window instead of the 14-day total", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "osrs-history-window-"));
+
+  try {
+    const historyPath = join(directory, "history.jsonl");
+    const catalogPath = join(directory, "catalog.json");
+    const now = Math.floor(Date.now() / 1000);
+    const store = new HistoryStore(historyPath, catalogPath);
+    await store.init();
+    await store.importSeries(42, [
+      {
+        timestamp: now - 10 * 24 * 60 * 60,
+        avgHighPrice: 120,
+        avgLowPrice: 100,
+        highPriceVolume: 50,
+        lowPriceVolume: 40,
+      },
+      {
+        timestamp: now - 60 * 60,
+        avgHighPrice: 130,
+        avgLowPrice: 110,
+        highPriceVolume: 60,
+        lowPriceVolume: 50,
+      },
+    ]);
+
+    assert.equal(store.getSamples(42).length, 2);
+    assert.equal(store.getRecentSampleCount(42, 72, now), 1);
+    assert.equal(store.getRecentSampleCount(42, 14 * 24, now), 2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("fill events persist and calculate FIFO realized profit", async () => {
   const directory = await mkdtemp(join(tmpdir(), "osrs-trades-"));
 
