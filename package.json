@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
+    "ml:bootstrap": "node scripts/bootstrap-ml.mjs",
     "test": "node --test test/*.mjs"
   },
   "engines": {

@@ -2,3 +2,6 @@ data/ingest-token.txt
 data/item-catalog.json
 data/market-history.jsonl
 data/trades.json
+data/ml-decisions.json
+data/ml-training.jsonl
+data/ml-model.json

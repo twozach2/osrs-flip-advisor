@@ -25,6 +25,8 @@ const elements = {
   marketCount: document.querySelector("#marketCount"),
   historySamples: document.querySelector("#historySamples"),
   historyStatus: document.querySelector("#historyStatus"),
+  mlStatus: document.querySelector("#mlStatus"),
+  mlDetail: document.querySelector("#mlDetail"),
   realizedProfit: document.querySelector("#realizedProfit"),
   trackingStatus: document.querySelector("#trackingStatus"),
   ingestEndpoint: document.querySelector("#ingestEndpoint"),
@@ -401,6 +403,35 @@ function cyclePatternBadge(opportunity) {
   return `<span class="cycle-badge ${pattern.status}" title="${title}">${label}</span>`;
 }
 
+function mlProbability(value) {
+  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "--";
+}
+
+function mlShadowBadge(opportunity) {
+  const shadow = opportunity.mlShadow;
+  if (!shadow) {
+    return "";
+  }
+  const predictions = shadow.predictions || {};
+  const entry = mlProbability(predictions.entryWithin6h);
+  const exit = mlProbability(predictions.exitWithin24h);
+  const downside = mlProbability(predictions.downsideBeforeExit);
+  const trustedCount = Object.values(shadow.trusted || {}).filter(Boolean).length;
+  const title =
+    `Shadow ML only; does not affect ranking. Entry within 6h ${entry}; ` +
+    `exit within 24h after entry ${exit}; downside before exit ${downside}. ` +
+    `${trustedCount}/3 targets beat their chronological validation baseline.`;
+  return `<span class="ml-shadow-badge" title="${title}">ML E ${entry} / X ${exit} / D ${downside}</span>`;
+}
+
+function slotMlShadow(shadow) {
+  if (!shadow) {
+    return "";
+  }
+  const predictions = shadow.predictions || {};
+  return `<br/><span class="slot-ml-shadow" title="Shadow prediction captured when this slot was pinned; it did not affect ranking.">ML shadow at pin: entry ${mlProbability(predictions.entryWithin6h)}, exit ${mlProbability(predictions.exitWithin24h)}, downside ${mlProbability(predictions.downsideBeforeExit)}</span>`;
+}
+
 function slotCyclePattern(pattern) {
   if (!pattern) {
     return "";
@@ -449,6 +480,7 @@ function rowHtml(opportunity) {
             ${bidAskDetail(opportunity.distribution)}
             ${trendBadge(opportunity)}
             ${cyclePatternBadge(opportunity)}
+            ${mlShadowBadge(opportunity)}
           </div>
         </div>
       </td>
@@ -552,6 +584,23 @@ function renderSummary() {
   elements.historyStatus.textContent = state.data.historyStatus?.lastSnapshotAt
     ? `${state.data.historyStatus.trackedItems} items, ${state.data.historyStatus.retentionDays}-day retention`
     : "First snapshot is being collected";
+  const ml = state.data.mlStatus || {};
+  const availableTargets = Object.values(ml.targets || {}).filter(
+    (target) => target.available,
+  ).length;
+  const trustedTargets = Object.values(ml.targets || {}).filter(
+    (target) => target.trusted,
+  ).length;
+  if (ml.error) {
+    elements.mlStatus.textContent = "ML unavailable";
+    elements.mlDetail.textContent = ml.error;
+  } else if (availableTargets > 0) {
+    elements.mlStatus.textContent = "Shadow active";
+    elements.mlDetail.textContent = `${formatCoins(ml.labeledRows)} labeled, ${formatCoins(ml.pendingDecisions)} pending; ${trustedTargets}/${availableTargets} signals validated`;
+  } else {
+    elements.mlStatus.textContent = "Collecting labels";
+    elements.mlDetail.textContent = `${formatCoins(ml.labeledRows || 0)}/${formatCoins(ml.minimumRows || 200)} labeled, ${formatCoins(ml.pendingDecisions || 0)} pending; no ranking impact`;
+  }
 }
 
 function savePlan() {
@@ -579,6 +628,7 @@ function snapshotOpportunity(opportunity) {
     modelSource: opportunity.modelSource,
     currentMid: opportunity.currentMid,
     cyclePattern: opportunity.cyclePattern || null,
+    mlShadow: opportunity.mlShadow || null,
     status: "Buying",
     pinnedAt: new Date().toISOString(),
   };
@@ -884,6 +934,7 @@ function renderPlan() {
             review below ${formatCoins(slot.reviewPrice)}
             ${slot.bidAsk ? `<br/><span class="slot-asymmetry" title="bid sigma ${slot.bidAsk.bidSigma.toFixed(3)}, ask sigma ${slot.bidAsk.askSigma.toFixed(3)}, asymmetric data weight ${Math.round(slot.bidAsk.asymmetryWeight * 100)}% (${slot.bidAsk.asymmetricSamples} samples)">Bid ${formatCoins(slot.bidAsk.bidFair)} / Ask ${formatCoins(slot.bidAsk.askFair)} - realized spread ${formatCoins(slot.bidAsk.realizedSpread)}</span>` : ""}
             ${slotCyclePattern(slot.cyclePattern)}
+            ${slotMlShadow(slot.mlShadow)}
           </p>
           <div class="slot-footer">
             <span>${formatTypeable(slot.quantity, "qty")} units - ${formatCoins(slot.expectedWeeklyProfit, true)}/wk model</span>

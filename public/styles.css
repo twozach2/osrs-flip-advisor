@@ -706,7 +706,8 @@ tbody tr:hover {
 }
 
 .item-cell .trend-badge,
-.item-cell .cycle-badge {
+.item-cell .cycle-badge,
+.item-cell .ml-shadow-badge {
   display: inline-block;
   margin-top: 4px;
   padding: 1px 7px;
@@ -781,6 +782,19 @@ tbody tr:hover {
 .slot-cycle-pattern {
   display: inline-block;
   margin-top: 4px;
+  font-size: 0.7rem;
+  cursor: help;
+}
+
+.ml-shadow-badge {
+  background: rgb(143 182 203 / 12%);
+  color: var(--blue);
+}
+
+.slot-ml-shadow {
+  display: inline-block;
+  margin-top: 4px;
+  color: var(--blue);
   font-size: 0.7rem;
   cursor: help;
 }

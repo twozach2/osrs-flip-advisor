@@ -45,6 +45,8 @@ use the bundled Node runtime.
   `data/market-history.jsonl`.
 - Accepts deduplicated read-only RuneLite fill events and maintains FIFO
   inventory, realized profit, and conservative quick-exit valuations.
+- Collects leakage-safe market decisions for three machine-learning shadow
+  signals without allowing those predictions to change rankings.
 
 ## Important assumptions
 
@@ -101,16 +103,34 @@ after the first catalog snapshot receive an additional risk penalty. Items with
 limited local history are also sized more conservatively while the database
 builds.
 
-## Machine-learning backburner
+## Machine-learning shadow mode
 
-Machine learning remains a future option, but it should be evaluated only after
-the trade tracker has produced a substantial labeled set of real entries,
-partial fills, exits, cancellations, and realized holding times. Any candidate
-model must use decision-time features only, beat the walk-forward statistical
-baseline on later unseen periods after tax, remain calibrated during market
-regime changes, and expose a conservative fallback when confidence is low. Until
-those requirements can be tested, the auditable cycle model remains the ranking
-baseline.
+The advisor now collects one decision per qualified item per hour and labels it
+only after the relevant future window is fully observable. Missing market
+observations are not treated as failed trades. Three dependency-free logistic
+models estimate entry within 6 hours, exit within 24 hours after entry, and
+downside before exit. Training uses chronological validation with a 30-hour
+embargo, and the dashboard reports whether each signal beat its simple baseline.
+
+ML remains strictly in shadow mode: predictions are displayed as `E`, `X`, and
+`D`, but never alter ranking, prices, sizing, or risk. Current labels represent
+market target touches, not guaranteed fills for a queued GE offer. The local
+files `data/ml-decisions.json`, `data/ml-training.jsonl`, and
+`data/ml-model.json` are excluded from Git and retain up to 180 days or 100,000
+compact training rows.
+
+To seed the model from existing history, stop the server and run:
+
+```powershell
+node scripts\bootstrap-ml.mjs
+```
+
+The server continues collecting labels and retrains automatically after enough
+new examples accumulate. Gradient-boosted trees remain on the backburner until
+RuneLite tracking provides a substantial labeled set of real entries, partial
+fills, exits, cancellations, and realized holding times. A future model must
+beat this shadow baseline on later unseen periods, remain calibrated through
+regime changes, and retain the statistical fallback when confidence is low.
 
 The Old School RuneScape client does not accept paste into the Grand Exchange
 price or quantity prompts, so every recommended value has to be typed by hand.

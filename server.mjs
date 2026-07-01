@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HistoryStore } from "./lib/history-store.mjs";
+import { MlShadowStore } from "./lib/ml-store.mjs";
 import {
   buildDistributionGuidance,
   calculateTax,
@@ -39,8 +40,13 @@ const historyStore = new HistoryStore(
   join(DATA_ROOT, "item-catalog.json"),
 );
 const tradeStore = new TradeStore(join(DATA_ROOT, "trades.json"));
+const mlStore = new MlShadowStore({
+  pendingPath: join(DATA_ROOT, "ml-decisions.json"),
+  trainingPath: join(DATA_ROOT, "ml-training.jsonl"),
+  modelPath: join(DATA_ROOT, "ml-model.json"),
+});
 
-await Promise.all([historyStore.init(), tradeStore.init()]);
+await Promise.all([historyStore.init(), tradeStore.init(), mlStore.init()]);
 await mkdir(DATA_ROOT, { recursive: true });
 
 const tokenPath = join(DATA_ROOT, "ingest-token.txt");
@@ -301,6 +307,16 @@ async function serveOpportunities(requestUrl, response) {
   };
   const records = await loadMarketRecords(settings);
   const ranked = rankOpportunities(records, settings);
+  let mlStatus;
+  try {
+    mlStatus = await mlStore.process(ranked, historyStore);
+  } catch (error) {
+    console.error("Shadow ML update failed:", error.message);
+    mlStatus = {
+      ...mlStore.getStatus(),
+      error: error.message,
+    };
+  }
 
   response.writeHead(200, {
     "Content-Type": contentTypes[".json"],
@@ -312,6 +328,7 @@ async function serveOpportunities(requestUrl, response) {
       source: "OSRS Wiki Real-time Prices API",
       taxModel: "Conservative 2% seller tax, floored, capped at 5m per item",
       historyStatus: historyStore.getStatus(),
+      mlStatus,
       ...ranked,
     }),
   );
